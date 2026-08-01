@@ -1,5 +1,11 @@
 # NetHack Tiles Client
 
+> [!NOTE]
+> This was vibe coded, entirely and unapologetically. Nearly all of it — the
+> Rust, the TypeScript, the tests, the app icon, this README — was written by
+> [Claude Code](https://claude.com/claude-code) running Opus 5, with a human
+> steering rather than typing. Read it with that in mind.
+
 A cross-platform desktop client for playing NetHack on the public servers
 (nethack.alt.org, Hardfought) with graphical tiles. It connects over SSH, reads
 the `vt_tiledata` escape codes the servers already emit, and paints the vanilla
@@ -13,6 +19,9 @@ Tauri 2 (OS webview, no bundled browser) + React/TypeScript frontend, Rust
 backend.
 
 ## Installing
+
+> No release has been tagged yet, so the download links and the tap are empty
+> until the first one. Until then, [build it](#running).
 
 On macOS:
 
