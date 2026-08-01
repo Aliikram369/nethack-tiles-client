@@ -574,7 +574,7 @@ mod pty_tests {
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
             let mut buf = [0u8; 64];
-            let _ = tx.send(std::fs::File::from(master).read(&mut buf).map(|n| n));
+            let _ = tx.send(std::fs::File::from(master).read(&mut buf));
         });
         let ended = rx.recv_timeout(Duration::from_secs(5));
 
