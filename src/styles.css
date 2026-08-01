@@ -1,0 +1,485 @@
+/*
+ * The palette is lifted from the tileset itself: NetHack's vanilla tiles paint
+ * their background in RGB(71, 108, 108), a desaturated slate-teal, so the
+ * chrome is built from that colour's family and the interface sits in the same
+ * light as the art.
+ *
+ * Everything is set in the terminal's own monospace and aligned to a character
+ * grid; hierarchy comes from size, weight and letter-spacing rather than from
+ * a second typeface, because the subject is a terminal.
+ */
+
+:root {
+  --stone: #476c6c; /* the tileset's own background colour */
+  --deep: #0d1416;
+  --panel: #141f22;
+  --panel-lift: #1b2a2e;
+  --edge: #2a4144;
+  --parchment: #cfc9b8;
+  --parchment-dim: #8d968f;
+  --gold: #ffb642;
+  --blood: #d13a3a;
+
+  --mono: "Menlo", "DejaVu Sans Mono", "Consolas", ui-monospace, monospace;
+  --cell: 8px; /* the grid everything snaps to */
+
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--deep);
+  color: var(--parchment);
+  font-family: var(--mono);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--cell) * 3);
+  min-height: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: calc(var(--cell) * 5) calc(var(--cell) * 3);
+}
+
+/* ---- masthead ---------------------------------------------------------- */
+
+.masthead {
+  border-bottom: 1px solid var(--edge);
+  padding-bottom: calc(var(--cell) * 3);
+}
+
+/*
+ * The signature: a strip of the real tiles, read left to right as a corridor
+ * you walk down -- wall, corridor, pet, hero, door, stairs, fountain, wall.
+ * The chrome is made of the same art the game is made of.
+ */
+.masthead__glyphs {
+  display: flex;
+  gap: 2px;
+  padding: calc(var(--cell) * 1.5);
+  margin-bottom: calc(var(--cell) * 2);
+  background: var(--stone);
+  border: 1px solid var(--edge);
+  width: fit-content;
+}
+
+.masthead h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.masthead__sub {
+  margin: calc(var(--cell) * 0.5) 0 0;
+  color: var(--parchment-dim);
+  max-width: 52ch;
+}
+
+/* ---- tiles ------------------------------------------------------------- */
+
+.tile {
+  display: inline-block;
+  flex: none;
+  image-rendering: pixelated;
+  background-repeat: no-repeat;
+  vertical-align: middle;
+}
+
+.tile--absent {
+  background: var(--panel-lift);
+  border: 1px solid var(--edge);
+}
+
+/* ---- server list ------------------------------------------------------- */
+
+.servers {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--cell) * 2);
+}
+
+.servers__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.servers h2 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--parchment-dim);
+}
+
+.server-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: var(--edge);
+  border: 1px solid var(--edge);
+}
+
+.server-list li {
+  display: flex;
+  background: var(--panel);
+}
+
+.server {
+  flex: 1;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: calc(var(--cell) * 1.5);
+  padding: calc(var(--cell) * 1.5) calc(var(--cell) * 2);
+  background: none;
+  border: 0;
+  border-left: 2px solid transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.server:hover {
+  background: var(--panel-lift);
+}
+
+.server--on {
+  border-left-color: var(--gold);
+  background: var(--panel-lift);
+}
+
+.server__name {
+  font-weight: 700;
+}
+
+.server__where {
+  grid-column: 2;
+  grid-row: 2;
+  color: var(--parchment-dim);
+  font-size: 12px;
+}
+
+.server__tag {
+  grid-column: 3;
+  grid-row: 1 / span 2;
+  color: var(--parchment-dim);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  border: 1px solid var(--edge);
+  padding: 1px calc(var(--cell));
+}
+
+.server__edit {
+  border: 0;
+  border-left: 1px solid var(--edge);
+  background: none;
+  color: var(--parchment-dim);
+  font: inherit;
+  padding: 0 calc(var(--cell) * 2);
+  cursor: pointer;
+}
+
+.server__edit:hover {
+  color: var(--parchment);
+  background: var(--panel-lift);
+}
+
+.empty {
+  margin: 0;
+  padding: calc(var(--cell) * 3);
+  border: 1px dashed var(--edge);
+  color: var(--parchment-dim);
+}
+
+.connect-row {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--cell) * 2);
+}
+
+.connect-row__status {
+  flex: 1;
+  color: var(--parchment-dim);
+  font-size: 12px;
+  min-height: 1.5em;
+}
+
+/* ---- forms ------------------------------------------------------------- */
+
+.profile-form {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--cell) * 3);
+}
+
+fieldset {
+  border: 1px solid var(--edge);
+  padding: calc(var(--cell) * 2);
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--cell) * 1.5);
+}
+
+legend {
+  padding: 0 var(--cell);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--cell) * 0.5);
+}
+
+label > span {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--parchment-dim);
+}
+
+label.check {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--cell);
+}
+
+label.check > span {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 14px;
+  color: var(--parchment);
+}
+
+.row {
+  display: flex;
+  gap: calc(var(--cell) * 2);
+}
+
+.row .grow {
+  flex: 1;
+}
+
+.row .narrow {
+  width: 11ch;
+}
+
+input,
+select {
+  background: var(--deep);
+  border: 1px solid var(--edge);
+  color: var(--parchment);
+  font: inherit;
+  padding: calc(var(--cell)) calc(var(--cell) * 1.5);
+  min-width: 0;
+}
+
+input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  accent-color: var(--gold);
+}
+
+input:focus-visible,
+select:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 1px;
+}
+
+.hint {
+  margin: 0;
+  color: var(--parchment-dim);
+  font-size: 12px;
+  max-width: 60ch;
+}
+
+.form-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--cell);
+}
+
+.form-actions .spacer {
+  flex: 1;
+}
+
+/* ---- buttons ----------------------------------------------------------- */
+
+button {
+  background: var(--panel-lift);
+  border: 1px solid var(--edge);
+  color: var(--parchment);
+  font: inherit;
+  letter-spacing: 0.06em;
+  padding: calc(var(--cell)) calc(var(--cell) * 2);
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--stone);
+  background: var(--stone);
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+button.primary {
+  background: var(--gold);
+  border-color: var(--gold);
+  color: #21170a;
+  font-weight: 700;
+}
+
+button.primary:hover:not(:disabled) {
+  background: #ffc766;
+  border-color: #ffc766;
+}
+
+button.danger {
+  color: var(--blood);
+}
+
+button.danger:hover {
+  background: var(--blood);
+  border-color: var(--blood);
+  color: var(--parchment);
+}
+
+/* ---- banners ----------------------------------------------------------- */
+
+.banner {
+  margin: 0;
+  padding: calc(var(--cell) * 1.5) calc(var(--cell) * 2);
+  border-left: 2px solid var(--gold);
+  background: var(--panel);
+  display: flex;
+  align-items: center;
+  gap: var(--cell);
+}
+
+.banner--error {
+  border-left-color: var(--blood);
+}
+
+.banner__dismiss {
+  margin-left: auto;
+}
+
+code {
+  background: var(--deep);
+  border: 1px solid var(--edge);
+  padding: 0 4px;
+  color: var(--gold);
+}
+
+/* ---- playing ----------------------------------------------------------- */
+
+.app--playing {
+  max-width: none;
+  padding: 0;
+  gap: 0;
+  height: 100%;
+}
+
+.play-bar {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--cell) * 2);
+  padding: var(--cell) calc(var(--cell) * 2);
+  border-bottom: 1px solid var(--edge);
+  background: var(--panel);
+  font-size: 12px;
+}
+
+.play-bar__where {
+  display: flex;
+  align-items: center;
+  gap: var(--cell);
+  font-weight: 700;
+}
+
+.play-bar__status {
+  flex: 1;
+  color: var(--parchment-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.play-bar__toggle {
+  flex-direction: row;
+  align-items: center;
+  gap: calc(var(--cell) * 0.75);
+}
+
+.play-bar button {
+  padding: 2px calc(var(--cell) * 1.5);
+}
+
+.terminal-host {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  padding: var(--cell);
+  background: var(--deep);
+}
+
+.terminal-host .xterm {
+  position: relative;
+  height: 100%;
+}
+
+/* The overlay sits exactly over xterm's screen and never takes the pointer. */
+.tile-overlay {
+  position: absolute;
+  pointer-events: none;
+  z-index: 5;
+}
+
+@media (max-width: 560px) {
+  .row {
+    flex-direction: column;
+  }
+  .row .narrow {
+    width: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

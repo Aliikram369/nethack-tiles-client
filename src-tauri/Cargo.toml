@@ -1,0 +1,46 @@
+[package]
+name = "nethack-tiles"
+version = "0.1.0"
+description = "NetHack tiles client for public servers (NAO / Hardfought)"
+authors = ["Ian Langworth"]
+edition = "2021"
+# `tiles2png` is a build-time helper; the app is what `cargo run` should start.
+default-run = "nethack-tiles"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "nethack_tiles_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+image = { version = "0.25.10", default-features = false, features = ["png"] }
+russh = "0.62.5"
+tokio = { version = "1.53.1", features = ["full"] }
+directories = "6.0.0"
+toml = "1.1.4"
+thiserror = "2.0.19"
+base64 = "0.23.0"
+log = "0.4.33"
+tauri-plugin-dialog = "2.7.2"
+
+# The keychain backend is selected per platform; compiling all three everywhere
+# would drag zbus/dbus into the macOS and Windows builds for no reason.
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "4.1.6", features = ["apple-native-keyring-store"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "4.1.6", features = ["windows-native-keyring-store"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "4.1.6", features = ["zbus-secret-service-keyring-store"] }
