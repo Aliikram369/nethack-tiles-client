@@ -33,9 +33,9 @@ brew install statico/tap/nethack-tiles-client
 
 Otherwise take the `.dmg`, `.msi`, `.AppImage` or `.deb` from the
 [releases page](https://github.com/statico/nethack-tiles-client/releases).
-Builds are unsigned unless signing secrets are configured, so macOS asks for a
-Control-click ▸ Open on the first launch, and Windows SmartScreen wants "More
-info ▸ Run anyway".
+The macOS build is signed with a Developer ID and notarised, so it opens like
+any other app. The Windows `.msi` is unsigned, so SmartScreen wants "More info
+▸ Run anyway".
 
 To build it yourself, see [Running](#running).
 
@@ -189,10 +189,13 @@ Three things have to be set up on the repo first:
 - **`TAP_GITHUB_TOKEN`** — a fine-grained PAT with `contents: write` on
   `statico/tap`. The built-in `GITHUB_TOKEN` cannot reach another repository,
   so without this the tap step is the one that fails.
-- **Apple signing (optional)** — `APPLE_CERTIFICATE`,
-  `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`,
-  `APPLE_PASSWORD`, `APPLE_TEAM_ID`. Absent, the build still succeeds and the
-  `.dmg` is simply unsigned.
+- **Apple signing** — `APPLE_CERTIFICATE` (a Developer ID Application `.p12`,
+  base64-encoded), `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`
+  (`Developer ID Application: Name (TEAMID)`), `APPLE_ID`, `APPLE_PASSWORD` (an
+  app-specific password, not the account one), `APPLE_TEAM_ID`. The build still
+  succeeds without them, but the `.dmg` is then unsigned, and macOS refuses a
+  downloaded unsigned app outright — it reports it as damaged rather than
+  offering to open it anyway.
 - **The first cask** — `tap.yml` writes `Casks/nethack-tiles-client.rb`, but
   the tap's README lists what it carries and is not touched by the workflow.
 

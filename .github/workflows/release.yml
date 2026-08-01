@@ -67,8 +67,9 @@ jobs:
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Signing and notarisation happen only if these secrets are set. An
-          # unsigned build still installs; macOS just makes the player confirm.
+          # Signing and notarisation happen only if these secrets are set, and
+          # the macOS build is only distributable with them: Gatekeeper turns
+          # away a downloaded unsigned app, reporting it as damaged.
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
@@ -81,8 +82,8 @@ jobs:
           releaseBody: |
             Download the build for your platform below.
 
-            macOS: the app is not notarised unless signing secrets are
-            configured, so the first launch needs Control-click > Open.
+            Windows: the .msi is unsigned, so SmartScreen asks for
+            "More info > Run anyway" on the first launch.
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
