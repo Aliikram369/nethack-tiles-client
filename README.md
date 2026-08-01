@@ -1,6 +1,6 @@
 # NetHack Tiles Client
 
-<img width="2532" height="1852" alt="CleanShot 2026-08-01 at 16 38 59@2x" src="https://github.com/user-attachments/assets/f2110159-8775-4126-bd7d-683c6e5b0f22" />
+<img height="400" alt="CleanShot 2026-08-01 at 16 38 59@2x" src="https://github.com/user-attachments/assets/f2110159-8775-4126-bd7d-683c6e5b0f22" />
 
 > [!NOTE]
 > This was vibe coded, entirely and unapologetically. Nearly all of it — the
