@@ -343,7 +343,7 @@ mod unix {
     }
 
     /// Opens a pty pair sized for the terminal we are showing.
-    fn openpty(cols: u16, rows: u16) -> Result<(OwnedFd, OwnedFd), LocalError> {
+    pub(super) fn openpty(cols: u16, rows: u16) -> Result<(OwnedFd, OwnedFd), LocalError> {
         let size = winsize(cols, rows);
         let mut master: RawFd = -1;
         let mut slave: RawFd = -1;
@@ -362,7 +362,37 @@ mod unix {
             return Err(LocalError::Pty(std::io::Error::last_os_error()));
         }
         // SAFETY: openpty just handed us these, and nothing else owns them.
-        Ok(unsafe { (OwnedFd::from_raw_fd(master), OwnedFd::from_raw_fd(slave)) })
+        // Wrapped before anything else can fail, so neither fd leaks.
+        let (master, slave) =
+            unsafe { (OwnedFd::from_raw_fd(master), OwnedFd::from_raw_fd(slave)) };
+
+        // `openpty` hands back plain descriptors, and a plain descriptor is
+        // inherited by every later fork+exec -- including the version probe,
+        // which runs `nethack --version` while a game may be in progress. One
+        // inherited copy of the slave keeps the pty open after the game exits,
+        // so the master never reports the end and a finished game looks like a
+        // running one. The child that is *supposed* to have the slave still
+        // gets it: dup2 onto 0/1/2 clears the flag on the copy it makes.
+        set_cloexec(master.as_raw_fd())?;
+        set_cloexec(slave.as_raw_fd())?;
+        Ok((master, slave))
+    }
+
+    /// Marks a descriptor close-on-exec.
+    ///
+    /// There is still a hair of a window between `openpty` and this call in
+    /// which another thread could fork; closing it entirely would need the
+    /// allocation itself to be atomic, which `openpty` does not offer.
+    fn set_cloexec(fd: RawFd) -> Result<(), LocalError> {
+        // SAFETY: `fd` is open and owned by the caller for the whole call.
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+        if flags == -1 {
+            return Err(LocalError::Pty(std::io::Error::last_os_error()));
+        }
+        if unsafe { libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC) } == -1 {
+            return Err(LocalError::Pty(std::io::Error::last_os_error()));
+        }
+        Ok(())
     }
 
     fn winsize(cols: u16, rows: u16) -> libc::winsize {
@@ -514,6 +544,48 @@ mod pty_tests {
             }
         }
         (text, reason)
+    }
+
+    /// A pty must not survive into a process that has nothing to do with it.
+    ///
+    /// `openpty` hands back plain descriptors, and a plain descriptor is
+    /// inherited by every `fork`+`exec` the process does afterwards. One
+    /// leaked copy of the slave is enough to keep the pty open forever: the
+    /// game exits, every fd it held closes, and the master still never reports
+    /// the end -- so a finished game would look like one still being played.
+    #[test]
+    fn a_pty_is_not_inherited_by_unrelated_children() {
+        use std::io::Read;
+        use std::sync::mpsc;
+
+        let (master, slave) = super::unix::openpty(80, 24).expect("openpty");
+
+        // Something else in the process starts a program, as the version probe
+        // does. It has no business holding this pty.
+        let mut bystander = std::process::Command::new("/bin/sleep")
+            .arg("30")
+            .spawn()
+            .expect("sleep");
+        drop(slave);
+
+        // Nothing holds the slave now, so the master must report the end at
+        // once. Read on a thread: the failure being tested for is a block that
+        // never returns, which would otherwise hang the whole suite.
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 64];
+            let _ = tx.send(std::fs::File::from(master).read(&mut buf).map(|n| n));
+        });
+        let ended = rx.recv_timeout(Duration::from_secs(5));
+
+        let _ = bystander.kill();
+        let _ = bystander.wait();
+
+        match ended {
+            Ok(Ok(0)) | Ok(Err(_)) => {}
+            Ok(Ok(n)) => panic!("read {n} bytes from a pty nothing has written to"),
+            Err(_) => panic!("the pty outlived its slave: a bystander process inherited it"),
+        }
     }
 
     #[tokio::test]
