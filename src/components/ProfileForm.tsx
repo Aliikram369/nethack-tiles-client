@@ -24,6 +24,20 @@ export function ProfileForm({ profile, tilesets, onSave, onCancel, onDelete }: P
   const set = <K extends keyof Profile>(field: K, value: Profile[K]) =>
     setDraft((d) => ({ ...d, [field]: value }));
 
+  /**
+   * Changing the server's NetHack version moves every tile index, so follow
+   * it with a sheet built for that version when one is bundled.
+   */
+  const setVersion = (version: Profile["version"]) =>
+    setDraft((d) => {
+      const match = tilesets.find((t) => t.version === version);
+      return { ...d, version, tilesetId: match?.id ?? d.tilesetId };
+    });
+
+  const chosenTileset = tilesets.find((t) => t.id === draft.tilesetId);
+  const versionMismatch =
+    chosenTileset !== undefined && chosenTileset.version !== draft.version;
+
   return (
     <form
       className="profile-form"
@@ -78,7 +92,7 @@ export function ProfileForm({ profile, tilesets, onSave, onCancel, onDelete }: P
             <span>NetHack version</span>
             <select
               value={draft.version}
-              onChange={(e) => set("version", e.target.value as Profile["version"])}
+              onChange={(e) => setVersion(e.target.value as Profile["version"])}
             >
               <option value="v36">3.6.x</option>
               <option value="v50">5.0 / 3.7</option>
@@ -170,6 +184,15 @@ export function ProfileForm({ profile, tilesets, onSave, onCancel, onDelete }: P
             />
           </label>
         </div>
+        {versionMismatch && (
+          <p className="hint hint--warn">
+            This tileset was built for{" "}
+            {chosenTileset.version === "v36" ? "NetHack 3.6" : "NetHack 5.0"}, but
+            the server runs {draft.version === "v36" ? "3.6" : "5.0"}. Tile
+            numbering differs between releases, so the map will show the wrong
+            pictures.
+          </p>
+        )}
         <p className="hint">Zoom multiplies the font size; tiles follow the cell.</p>
       </fieldset>
 

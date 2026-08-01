@@ -13,9 +13,22 @@ backend.
 
 - Rust (stable) and Node 18+
 - A game account on the server you want to play on
-- **`OPTIONS=vt_tiledata` in your `.nethackrc` on the server.** Without it the
-  server sends plain ASCII and no tiles appear. Edit it through the dgamelaunch
-  menu or the server's web editor. The app detects the absence and says so.
+- Two lines in your `.nethackrc` **on the server** (edit it through the
+  dgamelaunch menu or the server's web editor):
+
+  ```
+  OPTIONS=vt_tiledata
+  OPTIONS=windowtype:tty
+  ```
+
+  Both are required. `vt_tiledata` is implemented in the **tty** window port
+  only — `print_vt_code` lives in `win/tty/wintty.c` and nothing in
+  `win/curses/` references it — so `windowtype:curses` sends no tile data no
+  matter what else is set. The app detects the absence and says so.
+
+  Note NAO uses a separate rc file per NetHack version (`.nethackrc` for 3.6.x,
+  `.nh500rc` for 5.0), so make sure you are editing the one for the version you
+  actually play.
 
 ## Running
 
@@ -79,16 +92,27 @@ holds it, so menus, message lines and screen clears remove tiles by themselves
 
 ## Tilesets
 
-The bundled sheet is the vanilla 16×16 tileset built from NetHack 3.6.7's
-`win/share/{monsters,objects,other}.txt` — 1082 tiles, 40 columns. It is
-embedded in the binary so dev and packaged builds resolve it identically.
+Two sheets ship with the app, both vanilla 16×16 at 40 columns, built from
+`win/share/{monsters,objects,other}.txt` at the matching release tag:
 
-**Tile ordering is version-specific.** A sheet built from a different NetHack
-release will be off by some offset. Build the sheet from the same version the
-server runs; an index the sheet does not cover is drawn as a `?` placeholder
-rather than silently skipped.
+| Tileset | NetHack | Tiles |
+|---|---|---|
+| `vanilla-3.6.7-16` | 3.6.7 | 1082 |
+| `vanilla-5.0.0-16` | 5.0.0 | 1515 |
 
-To regenerate, download the three files from the matching NetHack tag and run:
+They are embedded in the binary so dev and packaged builds resolve them
+identically.
+
+**Tile ordering is version-specific, and the two lines are nowhere near
+compatible** — 5.0 has 433 more tiles and renumbers almost everything. Picking
+the wrong one does not fail loudly; it draws the wrong picture for nearly every
+glyph. The profile's NetHack version selects a matching sheet automatically,
+and the editor warns if you override it into a mismatch. An index the chosen
+sheet does not cover is drawn as a `?` placeholder rather than silently
+skipped.
+
+To build a sheet for another version or variant, download the three files from
+the matching NetHack tag and run:
 
 ```sh
 npm run tiles -- --id vanilla-3.6.7-16 --name "Vanilla 16x16 (NetHack 3.6.7)" \

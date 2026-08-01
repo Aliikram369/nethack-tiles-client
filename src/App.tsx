@@ -181,8 +181,11 @@ export default function App() {
 
         {tiledataHint && (
           <p className="banner">
-            No tiles yet. Add <code>OPTIONS=vt_tiledata</code> to your{" "}
-            <code>.nethackrc</code> on the server, then start a new game.
+            No tiles yet. Your <code>.nethackrc</code> on the server needs{" "}
+            <code>OPTIONS=vt_tiledata</code> <em>and</em>{" "}
+            <code>OPTIONS=windowtype:tty</code> — tile data comes from the tty
+            interface, so <code>windowtype:curses</code> never sends any. Fix
+            it, then start a new game.
           </p>
         )}
 

@@ -1,0 +1,9 @@
+{
+  "id": "vanilla-5.0.0-16",
+  "name": "Vanilla 16x16 (NetHack 5.0.0)",
+  "version": "v50",
+  "tileWidth": 16,
+  "tileHeight": 16,
+  "columns": 40,
+  "tileCount": 1515
+}

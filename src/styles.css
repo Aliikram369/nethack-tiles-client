@@ -483,3 +483,10 @@ code {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* A setting that will visibly break the game if left alone. */
+.hint--warn {
+  color: var(--gold);
+  border-left: 2px solid var(--gold);
+  padding-left: var(--cell);
+}

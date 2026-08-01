@@ -14,13 +14,25 @@ use crate::profiles::{KeyringSecrets, Profile, ProfileStore};
 use crate::ssh::{self, SshConfig, SshEvent, SshSession};
 use crate::tileset::{Tileset, TilesetManifest};
 
-/// The one tileset shipped with the app.
+/// The tilesets shipped with the app, one per supported NetHack line.
 ///
-/// Embedded rather than bundled as a Tauri resource so that dev runs and
-/// packaged builds resolve it identically. Regenerate with `tiles2png` (see
-/// `README.md`); the ordering must match the server's NetHack version.
-const BUNDLED_TILESET_PNG: &[u8] = include_bytes!("../tiles/vanilla-3.6.7-16.png");
-const BUNDLED_TILESET_MANIFEST: &str = include_str!("../tiles/vanilla-3.6.7-16.json");
+/// Embedded rather than bundled as Tauri resources so that dev runs and
+/// packaged builds resolve them identically. Regenerate with `tiles2png` (see
+/// `README.md`).
+///
+/// There has to be one per version: tile indices are positional, and 5.0 has
+/// 1515 tiles where 3.6.7 has 1082, so a 3.6.7 sheet on a 5.0 server draws
+/// the wrong picture for nearly every glyph.
+const BUNDLED_TILESETS: &[(&str, &[u8])] = &[
+    (
+        include_str!("../tiles/vanilla-3.6.7-16.json"),
+        include_bytes!("../tiles/vanilla-3.6.7-16.png"),
+    ),
+    (
+        include_str!("../tiles/vanilla-5.0.0-16.json"),
+        include_bytes!("../tiles/vanilla-5.0.0-16.png"),
+    ),
+];
 
 /// Event names. Namespaced so they cannot collide with Tauri's own.
 pub mod events {
@@ -123,13 +135,15 @@ impl AppState {
         let profiles =
             ProfileStore::load(path, Box::new(KeyringSecrets)).map_err(|e| e.to_string())?;
 
-        let manifest: TilesetManifest =
-            serde_json::from_str(BUNDLED_TILESET_MANIFEST).map_err(|e| e.to_string())?;
-        let bundled = Tileset::load(manifest, BUNDLED_TILESET_PNG.to_vec())
-            .map_err(|e| format!("the bundled tileset is unusable: {e}"))?;
-
         let mut tilesets = HashMap::new();
-        tilesets.insert(bundled.manifest().id.clone(), bundled);
+        for (manifest_json, png) in BUNDLED_TILESETS {
+            let manifest: TilesetManifest =
+                serde_json::from_str(manifest_json).map_err(|e| e.to_string())?;
+            let id = manifest.id.clone();
+            let tileset = Tileset::load(manifest, png.to_vec())
+                .map_err(|e| format!("the bundled tileset {id} is unusable: {e}"))?;
+            tilesets.insert(id, tileset);
+        }
 
         Ok(AppState {
             profiles: Mutex::new(profiles),
