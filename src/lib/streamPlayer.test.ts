@@ -403,3 +403,82 @@ describe("StreamPlayer", () => {
     expect(onFrame).toHaveBeenCalledTimes(1);
   });
 });
+
+/**
+ * NetHack announces which of its windows it is drawing into. A menu or text
+ * window is created after the map window, so it always has a higher id, and
+ * anything it does not paint over keeps showing the map underneath -- tty
+ * menus only clear the lines they use. That is what makes the level bleed
+ * through a menu.
+ */
+describe("StreamPlayer window tracking", () => {
+  const select = (winid: number | null): StreamItem => ({
+    type: "event",
+    event: { kind: "selectWindow", winid },
+  });
+
+  /** Gets to a state where the map window has been identified. */
+  function playing() {
+    const term = fakeTerminal();
+    const player = new StreamPlayer(term.port, new TileGrid(), () => {});
+    player.feed([select(3), glyph(344), text("@"), glyphEnd]);
+    term.drain();
+    return { term, player };
+  }
+
+  it("does not call the map obscured before it has seen one", () => {
+    const term = fakeTerminal();
+    const player = new StreamPlayer(term.port, new TileGrid(), () => {});
+
+    player.feed([select(5), text("dgamelaunch")]);
+    term.drain();
+
+    expect(player.mapObscured()).toBe(false);
+  });
+
+  it("learns which window the map is from the window a glyph is drawn in", () => {
+    const { player } = playing();
+
+    expect(player.mapObscured()).toBe(false);
+  });
+
+  it("reports the map obscured while a menu window is being drawn", () => {
+    const { term, player } = playing();
+
+    player.feed([select(6), text("Options")]);
+    term.drain();
+
+    expect(player.mapObscured()).toBe(true);
+  });
+
+  it("stops reporting it obscured once the map is drawn again", () => {
+    const { term, player } = playing();
+    player.feed([select(6), text("Options")]);
+    term.drain();
+
+    player.feed([select(3), glyph(344), text("@"), glyphEnd]);
+    term.drain();
+
+    expect(player.mapObscured()).toBe(false);
+  });
+
+  it("does not treat the message and status windows as covering the map", () => {
+    // These are created before the map and share the screen with it; every
+    // message would otherwise blank the tiles.
+    const { term, player } = playing();
+
+    player.feed([select(1), text("You see here a rock.")]);
+    term.drain();
+
+    expect(player.mapObscured()).toBe(false);
+  });
+
+  it("ignores the re-select code tty_nhgetch emits with no window id", () => {
+    const { term, player } = playing();
+
+    player.feed([select(null)]);
+    term.drain();
+
+    expect(player.mapObscured()).toBe(false);
+  });
+});

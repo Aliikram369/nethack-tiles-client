@@ -469,6 +469,16 @@ pub fn ssh_write(state: State<'_, AppState>, data: String) -> CmdResult<()> {
     with_session(&state, |s| s.write(data.into_bytes()))
 }
 
+/// Sends raw bytes.
+///
+/// NetHack's meta commands are a single byte with the eighth bit set, which
+/// no UTF-8 string can carry: encoding U+00EC would put two bytes on the wire
+/// and the server would see garbage instead of `M-l`.
+#[tauri::command]
+pub fn ssh_write_bytes(state: State<'_, AppState>, bytes: Vec<u8>) -> CmdResult<()> {
+    with_session(&state, |s| s.write(bytes))
+}
+
 #[tauri::command]
 pub fn ssh_resize(state: State<'_, AppState>, cols: u32, rows: u32) -> CmdResult<()> {
     with_session(&state, |s| s.resize(cols, rows))

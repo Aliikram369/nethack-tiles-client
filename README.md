@@ -120,6 +120,25 @@ Two related details matter for the same reason:
   Waiting for one meant the last frame of the game stayed painted over the
   launcher.
 
+**The overlay steps aside entirely while a menu is up.** Retiring covered cells
+is not enough on its own, because a tty menu clears only the lines it writes,
+and only when it is inset from the left edge — see `process_menu_window` and
+`erase_menu_or_text` in `win/tty/wintty.c`. Everywhere else the map is still
+genuinely on screen behind the menu. In ASCII that is a harmless leftover; a
+tile is opaque where the character underneath was not, so an unlit floor
+becomes a solid black block in the middle of the menu. `AVTC_SELECT_WINDOW`
+says which window NetHack is drawing into, and windows are numbered in creation
+order, so a window id above the map's is a menu or text window. The map's own
+id is learned by watching which window glyphs arrive in, rather than hardcoding
+a slot — which also keeps the message and status windows, created *before* the
+map and sharing the screen with it, from blanking the tiles on every message.
+
+**The terminal's cursor is drawn back on top of a tile that covers it.** The
+overlay canvas sits over the terminal, so xterm's cursor block is behind the
+tile and invisible — and during travel or a `;` look, that cursor is the thing
+the player is aiming. An outline is used rather than a filled block, since the
+tile underneath is what is being aimed at.
+
 ## Tilesets
 
 Two sheets ship with the app, both vanilla 16×16 at 40 columns, built from
@@ -186,6 +205,26 @@ centred in the cell, instead of stretching it. It needs a cell at least 16px in
 both directions, which is what the size and cell-width controls are for; below
 that it falls back to stretching, since a native-size tile would spill into the
 neighbouring column.
+
+## The Option key
+
+On macOS, Option is NetHack's meta key: Option+`l` is `M-l`, loot. Two things
+get in the way, so the chord is intercepted in `src/lib/keys.ts` and the byte
+written directly:
+
+- Option composes characters by default, so Option+`l` reaches the server as
+  `¬`.
+- xterm.js's own `macOptionIsMeta` sends `ESC` then the key. NetHack reads that
+  as a meta command only when the player has `OPTIONS=altmeta` in their
+  `.nethackrc` *on the server*, which this client cannot set for them. Without
+  it, `ESC l` cancels and then walks east.
+
+What NetHack actually wants is the ASCII code with the eighth bit set —
+`M(c)` is `0x80 | c` in `cmd.c` — which `tty_nhgetch` reads unchanged with no
+server-side option involved. That is a byte no UTF-8 string can carry (encoding
+U+00EC would put two bytes on the wire), hence the separate `ssh_write_bytes`
+command. The *physical* key is what is read, not the character macOS composed
+from it.
 
 ## Credentials
 

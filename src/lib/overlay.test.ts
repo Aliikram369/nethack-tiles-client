@@ -253,6 +253,44 @@ describe("paintOverlay", () => {
   });
 });
 
+describe("paintOverlay cursor", () => {
+  it("draws the cursor when a tile is sitting on top of it", () => {
+    // The overlay canvas covers the terminal, so xterm's own cursor block is
+    // invisible under a tile. That is the cursor NetHack parks on the square
+    // you are choosing during travel, so it has to be drawn back on top.
+    const ctx = fakeContext();
+    paintOverlay(
+      ctx as never,
+      target(),
+      [{ row: 2, col: 3, tile: 1, flags: noFlags, ch: "." }],
+      { row: 2, col: 3 },
+    );
+
+    expect(ctx.strokeRect).toHaveBeenCalledWith(31, 41, 8, 18);
+  });
+
+  it("leaves the cursor to the terminal when no tile covers it", () => {
+    const ctx = fakeContext();
+    paintOverlay(
+      ctx as never,
+      target(),
+      [{ row: 2, col: 3, tile: 1, flags: noFlags, ch: "." }],
+      { row: 5, col: 0 },
+    );
+
+    expect(ctx.strokeRect).not.toHaveBeenCalled();
+  });
+
+  it("draws no cursor when none was given", () => {
+    const ctx = fakeContext();
+    paintOverlay(ctx as never, target(), [
+      { row: 2, col: 3, tile: 1, flags: noFlags, ch: "." },
+    ]);
+
+    expect(ctx.strokeRect).not.toHaveBeenCalled();
+  });
+});
+
 describe("paintOverlay reporting", () => {
   it("reports nothing drawn for an empty map", () => {
     expect(paintOverlay(fakeContext() as never, target(), [])).toEqual({

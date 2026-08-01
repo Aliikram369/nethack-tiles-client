@@ -30,6 +30,7 @@ pub fn run() {
             app::add_custom_tileset,
             app::ssh_connect,
             app::ssh_write,
+            app::ssh_write_bytes,
             app::ssh_resize,
             app::ssh_disconnect,
         ])

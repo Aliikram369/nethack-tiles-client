@@ -4,11 +4,12 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import "@xterm/xterm/css/xterm.css";
 
+import { metaByte } from "../lib/keys";
 import { paintOverlay } from "../lib/overlay";
 import type { Profile, TilesetPayload } from "../lib/protocol";
 import { StreamPlayer } from "../lib/streamPlayer";
 import { TileGrid } from "../lib/tileGrid";
-import { onStream, sshResize, sshWrite } from "../lib/tauri";
+import { onStream, sshResize, sshWrite, sshWriteBytes } from "../lib/tauri";
 
 /**
  * The NetHack colour scheme, kept close to a classic 16-colour terminal so
@@ -146,6 +147,8 @@ export function GameTerminal({
     let sheet: HTMLImageElement | null = null;
     let sheetForUrl: string | null = null;
     let frameRequested = false;
+    /** Whether a menu or text window is currently covering the map. */
+    let mapObscured = false;
 
     const paint = () => {
       frameRequested = false;
@@ -169,7 +172,11 @@ export function GameTerminal({
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
       const active = tilesetRef.current;
-      if (!enabledRef.current || !active) {
+      // While a menu is up the map is still on screen behind it, because tty
+      // menus clear only the lines they use. Tiles are opaque where the
+      // characters underneath were not, so the level would show through as
+      // solid blocks; step aside and let the menu be plain text.
+      if (!enabledRef.current || !active || mapObscured) {
         ctx.clearRect(0, 0, screen.width, screen.height);
         return;
       }
@@ -201,6 +208,7 @@ export function GameTerminal({
           pixelPerfect: displayRef.current.pixelPerfect,
         },
         grid.entries(),
+        port.cursor(),
       );
 
       // A handful of gaps could be a genuinely absent tile; a map made of
@@ -221,12 +229,24 @@ export function GameTerminal({
     // still open; this is left to drop whatever no longer holds up.
     const player = new StreamPlayer(port, grid, () => {
       grid.prune(readCell);
+      mapObscured = player.mapObscured();
       requestPaint();
     });
 
     const unlistenStream = onStream((items) => player.feed(items));
     const dataSub = term.onData((data) => {
       void sshWrite(data);
+    });
+
+    // Option chords go straight out as NetHack's meta bytes; xterm.js would
+    // otherwise hand macOS's composed character to the server.
+    term.attachCustomKeyEventHandler((e) => {
+      if (e.type !== "keydown") return true;
+      const byte = metaByte(e);
+      if (byte === null) return true;
+      e.preventDefault();
+      void sshWriteBytes([byte]);
+      return false;
     });
 
     const applyFit = () => {

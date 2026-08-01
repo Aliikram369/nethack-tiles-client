@@ -44,13 +44,24 @@ export interface PaintReport {
   maxIndex: number;
 }
 
+/** Where the terminal's own cursor is, in cells. */
+export interface CursorCell {
+  row: number;
+  col: number;
+}
+
+/** Matches the terminal theme's cursor colour. */
+const CURSOR_COLOR = "#ffb642";
+
 export function paintOverlay(
   ctx: CanvasRenderingContext2D,
   target: OverlayTarget,
   tiles: readonly OverlayTile[],
+  cursor?: CursorCell,
 ): PaintReport {
   const report: PaintReport = { drawn: 0, missing: 0, maxIndex: -1 };
   const { manifest, cellWidth, cellHeight, widthPx, heightPx } = target;
+  let cursorCovered = false;
 
   ctx.clearRect(0, 0, widthPx, heightPx);
   // NetHack tiles are pixel art; smoothing turns them to mush when the cell
@@ -103,9 +114,41 @@ export function paintOverlay(
     if (tile.flags.pet) {
       drawPetHeart(ctx, x, y, cellWidth, cellHeight);
     }
+
+    if (cursor && cursor.row === tile.row && cursor.col === tile.col) {
+      cursorCovered = true;
+    }
+  }
+
+  if (cursor && cursorCovered) {
+    drawCursor(ctx, cursor.col * cellWidth, cursor.row * cellHeight, cellWidth, cellHeight);
   }
 
   return report;
+}
+
+/**
+ * Rings the cell the terminal's cursor is in.
+ *
+ * Only called when a tile is covering that cell. The overlay canvas sits on
+ * top of the terminal, so xterm's cursor block is behind the tile and
+ * invisible -- and during travel or a `;` look that cursor *is* the thing the
+ * player is aiming, which made choosing a destination impossible on any
+ * square that had a tile.
+ */
+function drawCursor(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+): void {
+  // An outline rather than a filled block: the tile underneath is what the
+  // player is aiming at, so it has to stay visible.
+  ctx.strokeStyle = CURSOR_COLOR;
+  ctx.lineWidth = 2;
+  ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+  ctx.lineWidth = 1;
 }
 
 /**

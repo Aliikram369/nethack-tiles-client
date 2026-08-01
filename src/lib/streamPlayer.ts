@@ -43,6 +43,10 @@ export class StreamPlayer {
   private inGlyph = false;
   /** Whether anything has happened since the last settle was scheduled. */
   private dirty = false;
+  /** The NetHack window currently being drawn into, once one is announced. */
+  private currentWindow: number | null = null;
+  /** The window glyphs arrive in, learned by watching where they land. */
+  private mapWindow: number | null = null;
 
   constructor(
     private readonly term: TerminalPort,
@@ -76,6 +80,9 @@ export class StreamPlayer {
           const { tile, flags } = event;
           this.inGlyph = true;
           this.dirty = true;
+          // Glyphs only ever go to the map, so this is how we find out which
+          // window the map is without hardcoding a slot number.
+          if (this.currentWindow !== null) this.mapWindow = this.currentWindow;
           this.flush(() => {
             // The previous glyph's character is on screen by now; anchor it
             // before this one moves the cursor on.
@@ -92,8 +99,12 @@ export class StreamPlayer {
           this.dirty = false;
           this.flush(() => this.settle());
           break;
-        // selectWindow and sound need no terminal action: a glyph is only ever
-        // emitted for the map, so glyphStart alone identifies it.
+        case "selectWindow":
+          // `tty_nhgetch` re-announces the current window with no id as a
+          // kludge to force the next select through; it changes nothing.
+          if (event.winid !== null) this.currentWindow = event.winid;
+          break;
+        // Sound needs no terminal action.
         default:
           break;
       }
@@ -109,6 +120,32 @@ export class StreamPlayer {
     } else {
       this.flush();
     }
+  }
+
+  /**
+   * True when NetHack is drawing into a menu or text window rather than the
+   * map, so the overlay would be painting tiles over that window.
+   *
+   * A tty menu clears only the lines it uses, and only when it is inset from
+   * the left edge (`erase_menu_or_text` / `process_menu_window` in
+   * `win/tty/wintty.c`); everywhere else the map is still on screen
+   * underneath. In ASCII that reads as harmless leftovers, but a tile is
+   * opaque, so an unlit floor becomes a solid black block sitting in the
+   * middle of the menu.
+   *
+   * Windows are numbered in creation order and the map is created during
+   * startup, long before any menu, so an id above the map's is a menu or text
+   * window. Comparing against the map's own id rather than a hardcoded slot
+   * keeps this working whatever order the port creates its windows in, and
+   * leaves the message and status windows -- which share the screen with the
+   * map and are created before it -- correctly excluded.
+   */
+  mapObscured(): boolean {
+    return (
+      this.mapWindow !== null &&
+      this.currentWindow !== null &&
+      this.currentWindow > this.mapWindow
+    );
   }
 
   /**

@@ -36,6 +36,9 @@ export const sshConnect = (profileId: string, cols: number, rows: number) =>
   invoke<void>("ssh_connect", { request: { profileId, cols, rows } });
 
 export const sshWrite = (data: string) => invoke<void>("ssh_write", { data });
+/** For bytes no UTF-8 string can carry, such as NetHack's meta commands. */
+export const sshWriteBytes = (bytes: number[]) =>
+  invoke<void>("ssh_write_bytes", { bytes });
 export const sshResize = (cols: number, rows: number) =>
   invoke<void>("ssh_resize", { cols, rows });
 export const sshDisconnect = () => invoke<void>("ssh_disconnect");
