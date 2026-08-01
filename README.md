@@ -47,9 +47,12 @@ default profile uses `us.hardfought.org`; change the host to `eu.` or `au.` if
 one of those is closer. Register once on the US host and the account syncs to
 the other two within a couple of minutes.
 
-This client speaks **SSH only**. NAO's telnet would work for the protocol, but
-it carries the game — and the dgamelaunch password this app types for you — in
-plain text, and Hardfought does not offer it at all.
+This client speaks SSH only — see [Not in v1](#not-in-v1).
+
+An earlier build defaulted the Hardfought profile to the bare domain. That host
+is repaired to `us.hardfought.org` when the profile file is loaded, so nobody
+has to go and find it; only that exact value is touched, never a host you typed
+yourself.
 
 ## Playing locally
 
@@ -360,3 +363,10 @@ src-tauri/src/
 
 Watching other players, ttyrec recording, Hardfought variants (xNetHack,
 SpliceHack — different tilesets), and sound (`TTY_SOUND_ESCCODES`).
+
+**Telnet — out of scope.** NAO offers it on port 23 and 14321, and the protocol
+work is small (`IAC` escaping, plus NAWS and TERMINAL-TYPE negotiation) now
+that `session.rs` makes the transport a seam. It is deliberately not done: it
+would carry the game and the dgamelaunch password this app types for you in
+plain text, Hardfought does not offer it at all, and both servers already
+accept SSH from the same accounts. Nothing is gained by it.

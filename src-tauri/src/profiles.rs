@@ -172,6 +172,14 @@ pub fn default_profiles(local: Option<(&Path, NetHackVersion)>) -> Vec<Profile> 
     profiles
 }
 
+/// Saved hosts that cannot work, and what they should have been.
+///
+/// `hardfought.org` shipped as a default in an earlier build. It is the
+/// website, served through Cloudflare, which does not proxy port 22 -- so it
+/// resolves but never accepts SSH. Anyone who ran that build has it saved,
+/// and leaving them to discover and edit it themselves is not a fix.
+const HOST_REPAIRS: &[(&str, &str)] = &[("hardfought.org", "us.hardfought.org")];
+
 /// The on-disk document.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -322,12 +330,38 @@ impl ProfileStore {
                 })
             }
         };
-        Ok(ProfileStore {
+        let mut store = ProfileStore {
             path,
             doc,
             secrets,
             first_run,
-        })
+        };
+        store.repair_hosts();
+        Ok(store)
+    }
+
+    /// Rewrites saved hosts that are known not to work.
+    ///
+    /// Only exact matches from [`HOST_REPAIRS`] are touched, so a host the
+    /// player typed themselves is never second-guessed. A failed write is
+    /// logged rather than returned: the repair is already applied in memory,
+    /// and refusing to start over it would be a worse outcome than redoing it
+    /// next launch.
+    fn repair_hosts(&mut self) {
+        let mut repaired = Vec::new();
+        for profile in &mut self.doc.profiles {
+            if let Some((_, fixed)) = HOST_REPAIRS.iter().find(|(bad, _)| profile.host == *bad) {
+                repaired.push(format!("{} -> {fixed}", profile.host));
+                profile.host = (*fixed).to_string();
+            }
+        }
+        if repaired.is_empty() {
+            return;
+        }
+        log::info!("repaired unreachable profile hosts: {}", repaired.join(", "));
+        if let Err(e) = self.save() {
+            log::warn!("could not write the repaired hosts back: {e}");
+        }
     }
 
     /// True when no config file existed, so nothing has been chosen yet.
@@ -518,6 +552,66 @@ mod tests {
             .expect("hardfought profile");
         assert_eq!(hardfought.host, "us.hardfought.org");
         assert_ne!(hardfought.host, "hardfought.org");
+    }
+
+    /// Writes a profile file with one profile on `host`.
+    fn with_host(path: &Path, host: &str) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            path,
+            format!(
+                "[[profiles]]\nid = \"hf\"\nname = \"Hardfought\"\n\
+                 host = \"{host}\"\nsshUser = \"nethack\"\n\
+                 tilesetId = \"vanilla-3.6.7-16\"\n"
+            ),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn a_profile_left_pointing_at_the_hardfought_website_is_repaired() {
+        // Anyone who ran an earlier build has this host saved, and it can
+        // never connect -- Cloudflare does not proxy port 22. Telling them to
+        // go and edit it themselves is not a fix.
+        let f = fixture("hardfought-repair");
+        with_host(&f.path, "hardfought.org");
+
+        assert_eq!(store(&f.path).get("hf").unwrap().host, "us.hardfought.org");
+    }
+
+    #[test]
+    fn the_repair_is_written_back_rather_than_redone_every_launch() {
+        let f = fixture("hardfought-repair-persists");
+        with_host(&f.path, "hardfought.org");
+        let _ = store(&f.path);
+
+        let on_disk = std::fs::read_to_string(&f.path).unwrap();
+        assert!(on_disk.contains("us.hardfought.org"), "{on_disk}");
+    }
+
+    #[test]
+    fn a_regional_hardfought_host_is_left_alone() {
+        let f = fixture("hardfought-eu");
+        with_host(&f.path, "eu.hardfought.org");
+
+        assert_eq!(store(&f.path).get("hf").unwrap().host, "eu.hardfought.org");
+    }
+
+    #[test]
+    fn an_unrelated_host_is_never_rewritten() {
+        let f = fixture("host-untouched");
+        with_host(&f.path, "nethack.alt.org");
+
+        assert_eq!(store(&f.path).get("hf").unwrap().host, "nethack.alt.org");
+    }
+
+    #[test]
+    fn a_first_run_writes_no_file_just_by_being_loaded() {
+        // The repair must not create a config file where there was none, or
+        // the next launch would no longer look like a first run.
+        let f = fixture("repair-no-file");
+        let _ = store(&f.path);
+        assert!(!f.path.exists());
     }
 
     #[test]
