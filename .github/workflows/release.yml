@@ -23,12 +23,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # One universal .dmg rather than two: the Homebrew cask then has a
-          # single URL and a single checksum to keep current.
-          - name: macOS (universal)
-            platform: macos-latest
-            args: --target universal-apple-darwin
-            targets: aarch64-apple-darwin,x86_64-apple-darwin
+          # macOS is missing on purpose. It is built by `npm run release:macos`
+          # on a Mac that already holds the Developer ID key, so the key is
+          # never copied into a CI secret. An unsigned .dmg built here would be
+          # worse than none: it downloads fine and then tells the player the
+          # app is damaged.
           - name: Linux
             platform: ubuntu-22.04
             args: ""
@@ -67,22 +66,14 @@ jobs:
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Signing and notarisation happen only if these secrets are set, and
-          # the macOS build is only distributable with them: Gatekeeper turns
-          # away a downloaded unsigned app, reporting it as damaged.
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           tagName: ${{ inputs.tag || github.ref_name }}
           releaseName: NetHack Tiles Client ${{ inputs.tag || github.ref_name }}
           releaseBody: |
             Download the build for your platform below.
 
-            Windows: the .msi is unsigned, so SmartScreen asks for
+            The macOS .dmg is signed and notarised, so it opens like any other
+            app. The Windows .msi is unsigned, so SmartScreen asks for
             "More info > Run anyway" on the first launch.
           releaseDraft: true
           prerelease: false

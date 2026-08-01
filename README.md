@@ -176,26 +176,59 @@ pushed:**
 git push origin main v0.1.1
 ```
 
-That tag starts `release.yml`, which builds a universal macOS `.dmg`, a Windows
-`.msi`, and Linux `.deb`/`.AppImage`, and attaches them to a **draft** release.
-The draft is the review step — nothing is public and Homebrew has not moved.
+That tag starts `release.yml`, which builds the Windows `.msi` and the Linux
+`.deb`/`.AppImage` and attaches them to a **draft** release. The draft is the
+review step — nothing is public and Homebrew has not moved.
 
-Publishing that draft on GitHub starts `tap.yml`, which checksums the `.dmg`
-and rewrites `Casks/nethack-tiles-client.rb` in
-[statico/tap](https://github.com/statico/tap).
+### The macOS build
 
-Three things have to be set up on the repo first:
+macOS is not built in CI. Signing it requires a Developer ID key, and putting
+that key in a GitHub secret means handing a copy of it to every workflow run
+and every action they call. Instead it is built on a Mac that already has the
+key in its keychain:
+
+```sh
+npm run release:macos
+```
+
+That builds a universal `.dmg`, signs it, sends it to Apple to be notarised,
+staples the ticket, checks the result with `spctl` the way Gatekeeper will, and
+attaches it to the draft. It refuses to upload a build Apple rejected, because
+signing and notarisation fail separately and an unnotarised `.dmg` looks
+perfectly fine on the machine that made it.
+
+It needs two things on that Mac, neither of them in the repo or in a shell
+profile:
+
+- A **Developer ID Application** certificate in the login keychain — made at
+  [developer.apple.com](https://developer.apple.com/account/resources/certificates/add),
+  installed by double-clicking the download. Not "Apple Development", which
+  signs for local debugging and cannot be notarised.
+- An **app-specific password** from [appleid.apple.com](https://appleid.apple.com)
+  (Sign-In and Security ▸ App-Specific Passwords), stored in the keychain
+  beside the Apple ID it belongs to:
+
+  ```sh
+  security add-generic-password -s nethack-tiles-notary -a you@example.com -w
+  ```
+
+  `-w` with no value prompts, so the password stays out of shell history.
+
+The team ID is in `scripts/release-macos.mjs`, which is not a secret: it is
+already embedded in the signature of every build.
+
+### Publishing
+
+Publishing the draft on GitHub starts `tap.yml`, which checksums the `.dmg` and
+rewrites `Casks/nethack-tiles-client.rb` in
+[statico/tap](https://github.com/statico/tap). Upload the macOS build *before*
+publishing — the tap step looks for it and fails without it.
+
+Two things have to be set up on the repo first:
 
 - **`TAP_GITHUB_TOKEN`** — a fine-grained PAT with `contents: write` on
   `statico/tap`. The built-in `GITHUB_TOKEN` cannot reach another repository,
   so without this the tap step is the one that fails.
-- **Apple signing** — `APPLE_CERTIFICATE` (a Developer ID Application `.p12`,
-  base64-encoded), `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`
-  (`Developer ID Application: Name (TEAMID)`), `APPLE_ID`, `APPLE_PASSWORD` (an
-  app-specific password, not the account one), `APPLE_TEAM_ID`. The build still
-  succeeds without them, but the `.dmg` is then unsigned, and macOS refuses a
-  downloaded unsigned app outright — it reports it as damaged rather than
-  offering to open it anyway.
 - **The first cask** — `tap.yml` writes `Casks/nethack-tiles-client.rb`, but
   the tap's README lists what it carries and is not touched by the workflow.
 
