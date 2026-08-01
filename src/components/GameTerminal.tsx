@@ -257,6 +257,25 @@ export function GameTerminal({
       requestPaint();
     };
 
+    /**
+     * Re-measures once the chosen face is actually available.
+     *
+     * A bundled font is fetched the first time something asks for it, and the
+     * terminal sizes its cell from whatever face it can see at that moment. A
+     * cell measured against the fallback is the wrong width, and since a tile
+     * is drawn to fill its cell, every tile on screen would be too.
+     */
+    const refitWhenFontArrives = (family: string, size: number) => {
+      const first = family.split(",")[0].trim();
+      void document.fonts
+        ?.load(`${size}px "${first.replace(/^["']|["']$/g, "")}"`)
+        .then(() => applyFit())
+        .catch(() => {
+          // An unavailable family is not an error: the fallback is already
+          // showing, and it is what the cell was measured against anyway.
+        });
+    };
+
     applyDisplayRef.current = () => {
       const d = displayRef.current;
       term.options.fontFamily = d.fontFamily;
@@ -264,11 +283,13 @@ export function GameTerminal({
       term.options.lineHeight = Math.max(1, d.lineHeight);
       term.options.letterSpacing = Math.max(0, d.letterSpacing);
       applyFit();
+      refitWhenFontArrives(d.fontFamily, term.options.fontSize ?? 16);
     };
 
     const observer = new ResizeObserver(() => applyFit());
     observer.observe(host);
     applyFit();
+    refitWhenFontArrives(initial.fontFamily, term.options.fontSize ?? 16);
     term.focus();
 
     return () => {

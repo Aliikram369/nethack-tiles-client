@@ -13,8 +13,14 @@ interface Props {
   onClose: () => void;
 }
 
-/** Families likely to be installed, plus whatever the profile already names. */
+/**
+ * Families likely to be installed, plus whatever the profile already names.
+ *
+ * PT Mono is first because it is the only one that is definitely present: it
+ * is bundled with the app, where the rest are whatever the OS happens to have.
+ */
 const FONTS = [
+  "PT Mono, monospace",
   "Menlo, DejaVu Sans Mono, Consolas, monospace",
   "SF Mono, Menlo, monospace",
   "Monaco, monospace",

@@ -9,6 +9,24 @@
  * a second typeface, because the subject is a terminal.
  */
 
+/*
+ * PT Mono, bundled rather than assumed. It ships with macOS but not with
+ * Windows or Linux, and a font the game offers has to exist everywhere the
+ * game runs -- a picker entry that silently falls back to something else is
+ * worse than no entry. ParaType release it under the OFL; see
+ * fonts/PTMono-OFL.txt. One weight is all ParaType publish; the terminal
+ * synthesises bold, as it does for several of the other choices.
+ */
+@font-face {
+  font-family: "PT Mono";
+  src: url("./fonts/PTMono-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  /* The terminal measures a cell from the face it can see, so it matters more
+     that the right face is in place than that text appears instantly. */
+  font-display: block;
+}
+
 :root {
   --stone: #476c6c; /* the tileset's own background colour */
   --deep: #0d1416;

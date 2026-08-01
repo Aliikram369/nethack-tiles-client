@@ -74,10 +74,9 @@ the other two within a couple of minutes.
 
 This client speaks SSH only — see [Not in v1](#not-in-v1).
 
-An earlier build defaulted the Hardfought profile to the bare domain. That host
-is repaired to `us.hardfought.org` when the profile file is loaded, so nobody
-has to go and find it; only that exact value is touched, never a host you typed
-yourself.
+A saved profile pointing at the bare domain is repaired to `us.hardfought.org`
+when the profile file is loaded. Only that exact value is touched, never a host
+you typed yourself.
 
 ## Playing locally
 
@@ -336,6 +335,13 @@ while the game is running, and writes the result to the server's profile. The
 terminal is re-measured in place rather than rebuilt, so nothing on screen is
 lost.
 
+**PT Mono** is bundled with the app, so it is the one font in the picker that
+is certain to be there — the rest are whatever the OS provides. It is
+[ParaType's](https://www.paratype.com/), under the SIL Open Font License; the
+licence travels with it in `src/fonts/`. The terminal re-measures its cell once
+a font has finished loading, because a cell measured against the fallback face
+is the wrong width, and a tile drawn into it would be too.
+
 "Whole-pixel tiles" draws each tile at 1×, 2× or 3× its native 16px art,
 centred in the cell, instead of stretching it. It needs a cell at least 16px in
 both directions, which is what the size and cell-width controls are for; below
@@ -405,10 +411,7 @@ that *changes* is a hard failure, not a prompt.
 
 Profiles live in `profiles.toml` under the OS config directory, in a folder
 named for the bundle identifier (`io.statico.nethack-tiles`), which also names
-the keychain entries. That identifier changed once, from `com.ian.…`; profiles
-saved under the old one are copied forward on first launch, and a password
-found only under the old keychain service is read through and re-filed under
-the new one. The old copies are left in place rather than deleted.
+the keychain entries.
 
 ## Layout
 
