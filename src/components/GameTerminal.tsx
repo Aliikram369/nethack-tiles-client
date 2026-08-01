@@ -41,15 +41,27 @@ interface Props {
   tileset: TilesetPayload | null;
   /** Draw tiles over the map, or leave plain ASCII. */
   tilesEnabled: boolean;
+  /**
+   * Called when the server asks for tiles the sheet does not have, which
+   * means the sheet does not match the server's NetHack version.
+   */
+  onSheetMismatch: (maxIndex: number) => void;
 }
 
-export function GameTerminal({ profile, tileset, tilesEnabled }: Props) {
+export function GameTerminal({
+  profile,
+  tileset,
+  tilesEnabled,
+  onSheetMismatch,
+}: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   // Kept in refs so the render loop reads current values without re-creating
   // the terminal, which would drop the session's scrollback.
   const tilesetRef = useRef(tileset);
   const enabledRef = useRef(tilesEnabled);
   const repaintRef = useRef<() => void>(() => {});
+  const mismatchRef = useRef(onSheetMismatch);
+  mismatchRef.current = onSheetMismatch;
 
   tilesetRef.current = tileset;
   enabledRef.current = tilesEnabled;
@@ -158,7 +170,7 @@ export function GameTerminal({ profile, tileset, tilesEnabled }: Props) {
         return;
       }
 
-      paintOverlay(
+      const report = paintOverlay(
         ctx,
         {
           sheet,
@@ -170,6 +182,12 @@ export function GameTerminal({ profile, tileset, tilesEnabled }: Props) {
         },
         grid.entries(),
       );
+
+      // A handful of gaps could be a genuinely absent tile; a map made of
+      // them means the wrong sheet.
+      if (report.missing > report.drawn && report.missing > 8) {
+        mismatchRef.current(report.maxIndex);
+      }
     };
 
     const requestPaint = () => {

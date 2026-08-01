@@ -187,3 +187,48 @@ describe("paintOverlay", () => {
     expect(ctx.drawImage).not.toHaveBeenCalled();
   });
 });
+
+describe("paintOverlay reporting", () => {
+  it("reports nothing drawn for an empty map", () => {
+    expect(paintOverlay(fakeContext() as never, target(), [])).toEqual({
+      drawn: 0,
+      missing: 0,
+      maxIndex: -1,
+    });
+  });
+
+  it("counts the tiles it drew", () => {
+    const report = paintOverlay(fakeContext() as never, target(), [
+      { row: 0, col: 0, tile: 1, flags: noFlags, ch: "a" },
+      { row: 0, col: 1, tile: 2, flags: noFlags, ch: "b" },
+    ]);
+    expect(report).toMatchObject({ drawn: 2, missing: 0 });
+  });
+
+  it("counts indices the sheet does not have", () => {
+    // The signal that the sheet does not match the server's NetHack version.
+    const report = paintOverlay(fakeContext() as never, target(), [
+      { row: 0, col: 0, tile: 1, flags: noFlags, ch: "a" },
+      { row: 0, col: 1, tile: 1272, flags: noFlags, ch: " " },
+      { row: 0, col: 2, tile: 1292, flags: noFlags, ch: " " },
+    ]);
+    expect(report).toMatchObject({ drawn: 1, missing: 2 });
+  });
+
+  it("reports the highest index the server asked for", () => {
+    // 5.0's "dark part of a room" is 1292; against a 1082-tile 3.6.7 sheet
+    // that number is the evidence the wrong sheet is loaded.
+    const report = paintOverlay(fakeContext() as never, target(), [
+      { row: 0, col: 0, tile: 93, flags: noFlags, ch: "@" },
+      { row: 0, col: 1, tile: 1292, flags: noFlags, ch: " " },
+    ]);
+    expect(report.maxIndex).toBe(1292);
+  });
+
+  it("does not count a tile that was skipped for being off-canvas", () => {
+    const report = paintOverlay(fakeContext() as never, target({ widthPx: 40, heightPx: 40 }), [
+      { row: 50, col: 50, tile: 1, flags: noFlags, ch: "a" },
+    ]);
+    expect(report.drawn).toBe(0);
+  });
+});

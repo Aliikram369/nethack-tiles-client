@@ -28,11 +28,21 @@ export interface OverlayTile {
   ch: string;
 }
 
+/** What a paint actually managed to draw, so the UI can spot a bad sheet. */
+export interface PaintReport {
+  drawn: number;
+  /** Tiles whose index is not in the sheet -- the version-mismatch signal. */
+  missing: number;
+  /** Highest index the server asked for, or -1 if none. */
+  maxIndex: number;
+}
+
 export function paintOverlay(
   ctx: CanvasRenderingContext2D,
   target: OverlayTarget,
   tiles: readonly OverlayTile[],
-): void {
+): PaintReport {
+  const report: PaintReport = { drawn: 0, missing: 0, maxIndex: -1 };
   const { manifest, cellWidth, cellHeight, widthPx, heightPx } = target;
 
   ctx.clearRect(0, 0, widthPx, heightPx);
@@ -41,6 +51,7 @@ export function paintOverlay(
   ctx.imageSmoothingEnabled = false;
 
   for (const tile of tiles) {
+    report.maxIndex = Math.max(report.maxIndex, tile.tile);
     const x = tile.col * cellWidth;
     const y = tile.row * cellHeight;
     if (x >= widthPx || y >= heightPx || x + cellWidth <= 0 || y + cellHeight <= 0) {
@@ -49,9 +60,11 @@ export function paintOverlay(
 
     const src = tileRect(manifest, tile.tile);
     if (!src) {
+      report.missing++;
       drawMissingTile(ctx, x, y, cellWidth, cellHeight);
       continue;
     }
+    report.drawn++;
 
     ctx.drawImage(
       target.sheet,
@@ -76,6 +89,8 @@ export function paintOverlay(
       drawPetHeart(ctx, x, y, cellWidth, cellHeight);
     }
   }
+
+  return report;
 }
 
 /**

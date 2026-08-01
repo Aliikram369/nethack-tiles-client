@@ -8,6 +8,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::mpsc;
 
 use crate::autologin::{AutoLogin, AutoLoginState};
+use crate::debuglog::{file_from_env, TileDebugLog};
 use crate::glyph::{GlyphFlags, NetHackVersion};
 use crate::demux::{Demuxer, StreamItem, TileEvent};
 use crate::profiles::{KeyringSecrets, Profile, ProfileStore};
@@ -329,12 +330,21 @@ pub async fn ssh_connect(
     *state.session.lock().unwrap() = Some(session.clone());
     emit_status(&app, StatusPayload::Connected(profile.host.clone()));
 
+    let tile_count = state
+        .tilesets
+        .lock()
+        .unwrap()
+        .get(&profile.tileset_id)
+        .map(|t| t.manifest().tile_count)
+        .unwrap_or(0);
+
     tauri::async_runtime::spawn(consume_session(
         app,
         rx,
         session,
         autologin,
         profile.version,
+        tile_count,
     ));
 
     if let Ok(mut store) = state.profiles.lock() {
@@ -350,13 +360,24 @@ async fn consume_session(
     session: SshSession,
     mut autologin: Option<AutoLogin>,
     version: NetHackVersion,
+    tile_count: u32,
 ) {
     let mut demuxer = Demuxer::new();
     let mut announced_tiledata = false;
 
+    // Diagnostics, off unless the environment asks for them. See debuglog.rs.
+    let mut debug = file_from_env("NHTILES_LOG").map(|f| TileDebugLog::new(f, tile_count));
+    let mut raw = file_from_env("NHTILES_RAW");
+
     while let Some(event) = events.recv().await {
         match event {
             SshEvent::Data(bytes) => {
+                if let Some(raw) = raw.as_mut() {
+                    use std::io::Write;
+                    let _ = raw.write_all(&bytes);
+                    let _ = raw.flush();
+                }
+
                 if let Some(login) = autologin.as_mut() {
                     // Only the plain text matters here, and only until the
                     // credentials are in.
@@ -372,8 +393,11 @@ async fn consume_session(
                     }
                 }
 
-                let items: Vec<_> = demuxer
-                    .feed(&bytes)
+                let decoded = demuxer.feed(&bytes);
+                if let Some(debug) = debug.as_mut() {
+                    debug.observe(&decoded);
+                }
+                let items: Vec<_> = decoded
                     .into_iter()
                     .map(|item| AppStreamItem::from_demux(item, version))
                     .collect();
@@ -387,12 +411,18 @@ async fn consume_session(
             }
             SshEvent::Status(message) => emit_status(&app, StatusPayload::Info(message)),
             SshEvent::Closed { reason } => {
+                if let Some(debug) = debug.as_mut() {
+                    debug.summarize();
+                }
                 emit_status(&app, StatusPayload::Closed(reason));
                 break;
             }
         }
     }
 
+    if let Some(debug) = debug.as_mut() {
+        debug.summarize();
+    }
     if let Some(state) = app.try_state::<AppState>() {
         *state.session.lock().unwrap() = None;
     }

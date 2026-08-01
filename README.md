@@ -126,6 +126,21 @@ and tile indices are positional.
 The tile art is from NetHack and is covered by the
 [NetHack General Public License](https://github.com/NetHack/NetHack/blob/NetHack-3.6.7_Released/dat/license).
 
+## Debugging tiles
+
+Two environment variables turn on diagnostics for a session, no rebuild needed:
+
+```sh
+NHTILES_LOG=/tmp/tiles.log NHTILES_RAW=/tmp/tiles.raw npm run tauri dev
+```
+
+`NHTILES_LOG` records every glyph next to the character NetHack drew for it
+(`tile=93 flags=0x0000 ch="@"`) plus a summary of the index range and anything
+outside the sheet. That pairing is what identifies an ordering mismatch: if the
+hero is `ch="@"` at tile 93 and the sheet's 93 is a rock mole, the sheet is
+built for the wrong NetHack version. `NHTILES_RAW` dumps the raw server bytes
+for offline replay.
+
 ## Credentials
 
 The public servers do not authenticate players over SSH. Everyone connects as a

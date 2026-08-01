@@ -54,6 +54,7 @@ export default function App() {
   const [connected, setConnected] = useState<Profile | null>(null);
   const [tilesEnabled, setTilesEnabled] = useState(true);
   const [tiledataHint, setTiledataHint] = useState(false);
+  const [sheetMismatch, setSheetMismatch] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const graceTimer = useRef<number | null>(null);
 
@@ -121,6 +122,7 @@ export default function App() {
     try {
       await sshConnect(profile.id, 80, 24);
       setConnected(profile);
+      setSheetMismatch(null);
       if (graceTimer.current) window.clearTimeout(graceTimer.current);
       graceTimer.current = window.setTimeout(
         () => setTiledataHint(true),
@@ -191,10 +193,24 @@ export default function App() {
           </p>
         )}
 
+        {sheetMismatch !== null && (
+          <p className="banner banner--error">
+            <span className="banner__text">
+              These tiles do not match the server. It asked for tile{" "}
+              {sheetMismatch}, but{" "}
+              <strong>{tileset?.manifest.name ?? "this tileset"}</strong> only
+              has {tileset?.manifest.tileCount ?? 0}. Disconnect and set this
+              profile's NetHack version to{" "}
+              {connected.version === "v36" ? "5.0 / 3.7" : "3.6.x"}.
+            </span>
+          </p>
+        )}
+
         <GameTerminal
           profile={connected}
           tileset={tileset}
           tilesEnabled={tilesEnabled}
+          onSheetMismatch={setSheetMismatch}
         />
       </div>
     );

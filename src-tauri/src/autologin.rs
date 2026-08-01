@@ -154,7 +154,7 @@ impl AutoLogin {
 
 /// Removes ANSI escape sequences so prompt matching sees plain text.
 /// dgamelaunch paints its menus with colour and cursor-positioning codes.
-fn strip_ansi(input: &str) -> String {
+pub(crate) fn strip_ansi(input: &str) -> String {
     let bytes = input.as_bytes();
     let mut out = String::with_capacity(input.len());
     let mut i = 0;
