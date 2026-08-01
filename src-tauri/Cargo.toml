@@ -1,11 +1,13 @@
 [package]
-name = "nethack-tiles"
+name = "nethack-tiles-client"
 version = "0.1.0"
 description = "NetHack tiles client for public servers (NAO / Hardfought)"
 authors = ["Ian Langworth"]
 edition = "2021"
+license = "MIT"
+repository = "https://github.com/statico/nethack-tiles-client"
 # `tiles2png` is a build-time helper; the app is what `cargo run` should start.
-default-run = "nethack-tiles"
+default-run = "nethack-tiles-client"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -13,6 +15,7 @@ default-run = "nethack-tiles"
 # The `_lib` suffix may seem redundant but it is necessary
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+# Kept as-is through the rename so every `use nethack_tiles_lib::` stays put.
 name = "nethack_tiles_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 

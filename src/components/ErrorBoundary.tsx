@@ -29,7 +29,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
     return (
       <div className="app">
         <header className="masthead">
-          <h1>NetHack Tiles</h1>
+          <h1>NetHack Tiles Client</h1>
         </header>
         <p className="banner banner--error" role="alert">
           The interface stopped: {error.message}

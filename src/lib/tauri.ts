@@ -2,6 +2,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import type {
   Profile,
   Status,
@@ -42,6 +43,17 @@ export const sessionWriteBytes = (bytes: number[]) =>
 export const sessionResize = (cols: number, rows: number) =>
   invoke<void>("session_resize", { cols, rows });
 export const sessionDisconnect = () => invoke<void>("session_disconnect");
+
+/**
+ * Hands a link to the desktop browser.
+ *
+ * A bare `<a href>` would navigate the webview itself, replacing the game with
+ * a web page and no way back, so every outbound link goes through here.
+ */
+export const openExternal = (url: string) =>
+  openUrl(url).catch((error) => {
+    void reportFrontendError(`openUrl(${url}) failed: ${error}`);
+  });
 
 /** Sends a frontend failure to the backend log, where it is actually visible. */
 export const reportFrontendError = (message: string) =>

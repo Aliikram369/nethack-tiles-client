@@ -1,4 +1,4 @@
-# NetHack Tiles
+# NetHack Tiles Client
 
 A cross-platform desktop client for playing NetHack on the public servers
 (nethack.alt.org, Hardfought) with graphical tiles. It connects over SSH, reads
@@ -11,6 +11,22 @@ see [Playing locally](#playing-locally).
 
 Tauri 2 (OS webview, no bundled browser) + React/TypeScript frontend, Rust
 backend.
+
+## Installing
+
+On macOS:
+
+```sh
+brew install statico/tap/nethack-tiles-client
+```
+
+Otherwise take the `.dmg`, `.msi`, `.AppImage` or `.deb` from the
+[releases page](https://github.com/statico/nethack-tiles-client/releases).
+Builds are unsigned unless signing secrets are configured, so macOS asks for a
+Control-click ▸ Open on the first launch, and Windows SmartScreen wants "More
+info ▸ Run anyway".
+
+To build it yourself, see [Running](#running).
 
 ## Requirements
 
@@ -127,6 +143,48 @@ NHTILES_TEST_USER=someaccount NHTILES_TEST_PASS=secret npm run test:live-login
 
 Local play has the same arrangement -- `npm run test:local-game` starts
 whatever NetHack is installed on this machine and checks that it draws.
+
+## Releasing
+
+Versions are dot releases: 0.1.0, 0.1.1, 0.1.2. The version is written down in
+five files that have to agree — `package.json`, `package-lock.json`,
+`tauri.conf.json`, `Cargo.toml`, `Cargo.lock` — so one command edits all of
+them:
+
+```sh
+npm run release                # 0.1.0 -> 0.1.1
+npm run release -- minor       # 0.1.0 -> 0.2.0
+npm run release -- 1.0.0       # exactly that
+npm run release -- --dry-run   # say what would change, change nothing
+```
+
+It refuses to run on a dirty tree, off `main`, or onto a tag that exists. Then
+it commits and tags, and stops. **Nothing is published until the tag is
+pushed:**
+
+```sh
+git push origin main v0.1.1
+```
+
+That tag starts `release.yml`, which builds a universal macOS `.dmg`, a Windows
+`.msi`, and Linux `.deb`/`.AppImage`, and attaches them to a **draft** release.
+The draft is the review step — nothing is public and Homebrew has not moved.
+
+Publishing that draft on GitHub starts `tap.yml`, which checksums the `.dmg`
+and rewrites `Casks/nethack-tiles-client.rb` in
+[statico/tap](https://github.com/statico/tap).
+
+Three things have to be set up on the repo first:
+
+- **`TAP_GITHUB_TOKEN`** — a fine-grained PAT with `contents: write` on
+  `statico/tap`. The built-in `GITHUB_TOKEN` cannot reach another repository,
+  so without this the tap step is the one that fails.
+- **Apple signing (optional)** — `APPLE_CERTIFICATE`,
+  `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`,
+  `APPLE_PASSWORD`, `APPLE_TEAM_ID`. Absent, the build still succeeds and the
+  `.dmg` is simply unsigned.
+- **The first cask** — `tap.yml` writes `Casks/nethack-tiles-client.rb`, but
+  the tap's README lists what it carries and is not touched by the workflow.
 
 ## How tiles work
 
@@ -357,6 +415,14 @@ src-tauri/src/
   autologin.rs           dgamelaunch login state machine
   app.rs                 Tauri commands and events
   bin/tiles2png.rs       tile sheet generator
+scripts/
+  version.mjs            rewrites the version in each file that carries it
+  release.mjs            bump, commit, tag
+  cask.mjs               renders the Homebrew cask
+.github/workflows/
+  ci.yml                 tests and clippy on every push
+  release.yml            builds a tag into a draft release
+  tap.yml                points the Homebrew cask at a published release
 ```
 
 ## The icon

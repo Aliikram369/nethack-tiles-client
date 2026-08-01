@@ -18,6 +18,10 @@ use serde::{Deserialize, Serialize};
 use crate::glyph::NetHackVersion;
 
 /// Service name under which passwords are filed in the OS keychain.
+///
+/// This stays `nethack-tiles` even though the app is now called NetHack Tiles
+/// Client: renaming it would orphan every password already in the keychain,
+/// and nothing shows it to the player.
 const KEYCHAIN_SERVICE: &str = "com.ian.nethack-tiles";
 
 fn default_port() -> u16 {
@@ -301,6 +305,9 @@ pub struct ProfileStore {
 
 impl ProfileStore {
     /// The default config file location, `<os config dir>/nethack-tiles/profiles.toml`.
+    ///
+    /// Named for the same reason as [`KEYCHAIN_SERVICE`]: moving it would hide
+    /// the profiles anyone has already saved.
     pub fn default_path() -> Result<PathBuf, ProfileError> {
         let dirs = directories::ProjectDirs::from("com", "ian", "nethack-tiles")
             .ok_or(ProfileError::NoConfigDir)?;

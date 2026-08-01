@@ -585,6 +585,33 @@ code {
   }
 }
 
+/* ---- colophon ---------------------------------------------------------- */
+
+/*
+ * Sits on the floor of the launcher, not under the content: `margin-top: auto`
+ * keeps it pinned to the bottom edge whether there is one game listed or ten.
+ */
+.colophon {
+  margin-top: auto;
+  padding-top: calc(var(--cell) * 3);
+  border-top: 1px solid var(--edge);
+  color: var(--parchment-dim);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+
+.colophon a {
+  color: var(--parchment-dim);
+  text-decoration: none;
+  border-bottom: 1px solid var(--edge);
+}
+
+.colophon a:hover,
+.colophon a:focus-visible {
+  color: var(--gold);
+  border-bottom-color: var(--gold);
+}
+
 /* A setting that will visibly break the game if left alone. */
 .hint--warn {
   color: var(--gold);

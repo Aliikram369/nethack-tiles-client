@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "NetHack Tiles",
+  "productName": "NetHack Tiles Client",
   "version": "0.1.0",
   "identifier": "com.ian.nethack-tiles",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "NetHack Tiles",
+        "title": "NetHack Tiles Client",
         "width": 1100,
         "height": 760,
         "minWidth": 640,

@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 import { DisplayControls } from "./components/DisplayControls";
 import { GameTerminal } from "./components/GameTerminal";
@@ -19,10 +26,15 @@ import {
   lastUsedProfile,
   onStatus,
   onTiledataSeen,
+  openExternal,
   saveProfile,
   sessionConnect,
   sessionDisconnect,
 } from "./lib/tauri";
+
+/** Where the source lives, and where bugs should be reported. */
+const REPO_URL = "https://github.com/statico/nethack-tiles-client";
+const AUTHOR_URL = "https://github.com/statico";
 
 /** How long to wait for tile codes before suggesting the .nethackrc fix. */
 const TILEDATA_GRACE_MS = 40_000;
@@ -306,7 +318,7 @@ export default function App() {
             <Tile key={i} tileset={tileset} index={index} size={24} />
           ))}
         </div>
-        <h1>NetHack Tiles</h1>
+        <h1>NetHack Tiles Client</h1>
         <p className="masthead__sub">
           Play on the public servers, with tiles. Your scores stay on their
           leaderboards.
@@ -406,7 +418,28 @@ export default function App() {
           </div>
         </main>
       )}
+
+      <footer className="colophon">
+        <ExternalLink href={AUTHOR_URL}>by @statico</ExternalLink>
+        <span aria-hidden="true"> · </span>
+        <ExternalLink href={REPO_URL}>source on GitHub</ExternalLink>
+      </footer>
     </div>
+  );
+}
+
+/** A link that leaves the app instead of navigating the game away. */
+function ExternalLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <a
+      href={href}
+      onClick={(e) => {
+        e.preventDefault();
+        void openExternal(href);
+      }}
+    >
+      {children}
+    </a>
   );
 }
 
