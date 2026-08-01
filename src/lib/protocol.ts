@@ -15,7 +15,18 @@ export type TileEvent =
   | { kind: "sound"; id: number | null };
 
 export type StreamItem =
-  | { type: "text"; bytes: string }
+  | {
+      type: "text";
+      bytes: string;
+      /**
+       * True when these bytes put characters on the screen. The backend never
+       * mixes printing and non-printing bytes in one item, so a printing item
+       * occupies exactly `bytes.length` cells ending at the cursor once the
+       * terminal has processed it -- which is how the overlay knows which
+       * cells something other than the map has written to.
+       */
+      prints: boolean;
+    }
   | { type: "event"; event: TileEvent };
 
 /** Decoded `MG_*` glyph flags, as sent by the backend. */
@@ -59,8 +70,20 @@ export interface Profile {
   fontFamily: string;
   fontSize: number;
   scale: number;
+  /** Cell height as a multiple of the font size, so: tile height. */
+  lineHeight: number;
+  /** Extra pixels of cell width, so: tile width. */
+  letterSpacing: number;
+  /** Draw tiles at a whole multiple of 16px, centred, instead of stretched. */
+  pixelPerfect: boolean;
   autoLogin: boolean;
 }
+
+/** The subset of a profile the in-game display panel edits. */
+export type DisplaySettings = Pick<
+  Profile,
+  "fontFamily" | "fontSize" | "lineHeight" | "letterSpacing" | "pixelPerfect"
+>;
 
 export type Status =
   | { state: "connecting"; message: string }

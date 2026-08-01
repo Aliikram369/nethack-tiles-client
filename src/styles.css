@@ -458,12 +458,103 @@ code {
   padding: 2px calc(var(--cell) * 1.5);
 }
 
+/* The game and the settings drawer share the space below the bar. */
+.play-area {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: stretch;
+}
+
 .terminal-host {
   flex: 1;
+  min-width: 0;
   min-height: 0;
   position: relative;
   padding: var(--cell);
   background: var(--deep);
+}
+
+.display-panel {
+  width: 34ch;
+  flex: none;
+  overflow-y: auto;
+  padding: calc(var(--cell) * 2);
+  border-left: 1px solid var(--edge);
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--cell) * 2);
+  font-size: 12px;
+}
+
+.display-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.display-panel__head h2 {
+  margin: 0;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--parchment-dim);
+}
+
+.display-panel__head button {
+  padding: 0 calc(var(--cell) * 1.5);
+  line-height: 1.4;
+}
+
+.display-panel__note {
+  margin: 0;
+  color: var(--parchment-dim);
+}
+
+.display-field {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--cell) * 0.75);
+}
+
+.display-field > span {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--cell);
+}
+
+.display-field output {
+  color: var(--parchment-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.display-field small,
+.display-check small {
+  display: block;
+  color: var(--parchment-dim);
+  line-height: 1.5;
+}
+
+.display-field input[type="range"] {
+  width: 100%;
+  accent-color: var(--gold);
+}
+
+.display-check {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--cell);
+}
+
+.display-check input {
+  margin-top: 2px;
+}
+
+@media (max-width: 720px) {
+  .display-panel {
+    width: 26ch;
+  }
 }
 
 .terminal-host .xterm {

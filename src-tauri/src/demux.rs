@@ -64,15 +64,38 @@ pub enum StreamItem {
     Text {
         #[serde(with = "serde_bytes_as_latin1")]
         bytes: Vec<u8>,
+        /// True when these bytes put characters on the screen, false when they
+        /// are escape sequences or control codes.
+        ///
+        /// Printing and non-printing bytes are never mixed in one item, which
+        /// is what lets the frontend tell *which cells a write landed on*: the
+        /// characters occupy the `bytes.len()` cells ending at the cursor once
+        /// the item has been processed. Any cell written by something other
+        /// than a map glyph can no longer be showing a tile, and that is how
+        /// the overlay knows a menu has covered the map.
+        prints: bool,
     },
     /// A decoded tile event.
     Event { event: TileEvent },
 }
 
+/// Constructors for the tests; the demuxer builds items inline as it goes.
+#[cfg(test)]
 impl StreamItem {
+    /// Printing text.
     fn text(bytes: impl Into<Vec<u8>>) -> Self {
         StreamItem::Text {
             bytes: bytes.into(),
+            prints: true,
+        }
+    }
+
+    /// Escape sequences and control codes: written to the terminal, but they
+    /// put nothing in a cell.
+    fn control(bytes: impl Into<Vec<u8>>) -> Self {
+        StreamItem::Text {
+            bytes: bytes.into(),
+            prints: false,
         }
     }
 }
@@ -94,11 +117,20 @@ mod serde_bytes_as_latin1 {
 /// flushing it as text. Real sequences are far shorter than this.
 const MAX_CSI_LEN: usize = 64;
 
+/// Longest OSC payload buffered before assuming the terminator was lost.
+const MAX_OSC_LEN: usize = 512;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum State {
     Ground,
     Esc,
     Csi,
+    /// After `ESC` + an intermediate byte, e.g. the `(` of `ESC ( B`.
+    EscIntermediate,
+    /// Inside `ESC ] ... BEL` or `ESC ] ... ESC \`.
+    Osc,
+    /// Saw `ESC` while in [`State::Osc`]; a `\` here ends the string.
+    OscEsc,
 }
 
 /// Incremental, chunk-boundary-safe demultiplexer.
@@ -109,6 +141,10 @@ pub struct Demuxer {
     csi: Vec<u8>,
     /// Passthrough bytes not yet flushed as a [`StreamItem::Text`].
     text: Vec<u8>,
+    /// Whether the bytes in `text` print. A run only ever holds one kind.
+    text_prints: bool,
+    /// Bytes seen in the current OSC payload, so a lost terminator recovers.
+    osc_len: usize,
     saw_tile_data: bool,
 }
 
@@ -124,6 +160,8 @@ impl Demuxer {
             state: State::Ground,
             csi: Vec::new(),
             text: Vec::new(),
+            text_prints: false,
+            osc_len: 0,
             saw_tile_data: false,
         }
     }
@@ -146,7 +184,7 @@ impl Demuxer {
                     if b == 0x1b {
                         self.state = State::Esc;
                     } else {
-                        self.text.push(b);
+                        self.push(&[b], prints(b), &mut out);
                     }
                 }
                 State::Esc => match b {
@@ -154,23 +192,55 @@ impl Demuxer {
                         self.csi.clear();
                         self.state = State::Csi;
                     }
+                    b']' => {
+                        self.push(&[0x1b, b']'], false, &mut out);
+                        self.osc_len = 0;
+                        self.state = State::Osc;
+                    }
                     // ESC ESC: the first one is literal, stay armed for the second.
-                    0x1b => self.text.push(0x1b),
+                    0x1b => self.push(&[0x1b], false, &mut out),
+                    // An intermediate byte means at least one more to come,
+                    // e.g. the charset selection ESC ( B.
+                    0x20..=0x2f => {
+                        self.push(&[0x1b, b], false, &mut out);
+                        self.state = State::EscIntermediate;
+                    }
                     _ => {
-                        self.text.push(0x1b);
-                        self.text.push(b);
+                        self.push(&[0x1b, b], false, &mut out);
                         self.state = State::Ground;
                     }
                 },
+                State::EscIntermediate => {
+                    self.push(&[b], false, &mut out);
+                    if !(0x20..=0x2f).contains(&b) {
+                        self.state = State::Ground;
+                    }
+                }
+                State::Osc => {
+                    self.push(&[b], false, &mut out);
+                    self.osc_len += 1;
+                    if b == 0x07 {
+                        self.state = State::Ground;
+                    } else if b == 0x1b {
+                        self.state = State::OscEsc;
+                    } else if self.osc_len > MAX_OSC_LEN {
+                        // The terminator was lost. Recovering as text beats
+                        // treating the rest of the session as one long title.
+                        self.state = State::Ground;
+                    }
+                }
+                State::OscEsc => {
+                    self.push(&[b], false, &mut out);
+                    self.state = if b == b'\\' { State::Ground } else { State::Osc };
+                }
                 State::Csi => {
                     if self.csi.len() >= MAX_CSI_LEN {
                         // Runaway sequence -- treat the whole thing as text
                         // rather than growing without bound.
-                        self.text.push(0x1b);
-                        self.text.push(b'[');
                         let csi = std::mem::take(&mut self.csi);
-                        self.text.extend_from_slice(&csi);
-                        self.text.push(b);
+                        self.push(&[0x1b, b'['], false, &mut out);
+                        self.push(&csi, false, &mut out);
+                        self.push(&[b], false, &mut out);
                         self.state = State::Ground;
                         continue;
                     }
@@ -195,9 +265,8 @@ impl Demuxer {
 
         let is_tile_code = final_byte == b'z' && params.first() == Some(&Some(1));
         if !is_tile_code {
-            self.text.push(0x1b);
-            self.text.push(b'[');
-            self.text.extend_from_slice(csi);
+            self.push(&[0x1b, b'['], false, out);
+            self.push(csi, false, out);
             return;
         }
 
@@ -222,9 +291,22 @@ impl Demuxer {
         }
     }
 
+    /// Appends passthrough bytes, starting a new item whenever the run
+    /// switches between printing and non-printing.
+    fn push(&mut self, bytes: &[u8], prints: bool, out: &mut Vec<StreamItem>) {
+        if !self.text.is_empty() && self.text_prints != prints {
+            self.flush_text(out);
+        }
+        self.text_prints = prints;
+        self.text.extend_from_slice(bytes);
+    }
+
     fn flush_text(&mut self, out: &mut Vec<StreamItem>) {
         if !self.text.is_empty() {
-            out.push(StreamItem::text(std::mem::take(&mut self.text)));
+            out.push(StreamItem::Text {
+                bytes: std::mem::take(&mut self.text),
+                prints: self.text_prints,
+            });
         }
     }
 }
@@ -232,6 +314,13 @@ impl Demuxer {
 /// CSI sequences terminate on a byte in the range `0x40..=0x7E`.
 fn is_csi_final(b: u8) -> bool {
     (0x40..=0x7e).contains(&b)
+}
+
+/// True for bytes a terminal renders into a cell and advances the cursor past.
+/// Bytes above 0x7f are line-drawing characters in NetHack's IBM/DEC graphics
+/// modes, which do occupy a cell.
+fn prints(b: u8) -> bool {
+    (0x20..0x7f).contains(&b) || b >= 0x80
 }
 
 /// Splits `;`-separated numeric parameters. An empty parameter is `None`
@@ -253,6 +342,11 @@ mod tests {
 
     fn text(s: &str) -> StreamItem {
         StreamItem::text(s.as_bytes())
+    }
+
+    /// Non-printing passthrough: escape sequences and control codes.
+    fn ctrl(s: &str) -> StreamItem {
+        StreamItem::control(s.as_bytes())
     }
 
     fn event(e: TileEvent) -> StreamItem {
@@ -341,15 +435,38 @@ mod tests {
     }
 
     #[test]
-    fn adjacent_text_is_coalesced_into_one_item() {
-        assert_eq!(demux(b"abc\x1b[2Jdef"), vec![text("abc\x1b[2Jdef")]);
+    fn adjacent_printable_bytes_are_coalesced_into_one_item() {
+        assert_eq!(demux(b"Hello NetHack"), vec![text("Hello NetHack")]);
+    }
+
+    #[test]
+    fn printable_text_is_split_from_the_escape_sequences_around_it() {
+        // The frontend works out which cells a write landed on by counting the
+        // characters in a printing item back from the cursor, so a run must
+        // never mix escape bytes in with the characters.
+        assert_eq!(
+            demux(b"abc\x1b[2Jdef"),
+            vec![text("abc"), ctrl("\x1b[2J"), text("def")]
+        );
+    }
+
+    #[test]
+    fn control_codes_are_not_printing_text() {
+        // A carriage return moves the cursor; it does not fill a cell.
+        assert_eq!(
+            demux(b"hi\r\nthere"),
+            vec![text("hi"), ctrl("\r\n"), text("there")]
+        );
     }
 
     #[test]
     fn sgr_sequence_starting_with_param_one_is_not_a_tile_code() {
         // ESC[1;31m (bold red) shares the leading `1` parameter with the tile
         // protocol and must pass through untouched.
-        assert_eq!(demux(b"\x1b[1;31mred"), vec![text("\x1b[1;31mred")]);
+        assert_eq!(
+            demux(b"\x1b[1;31mred"),
+            vec![ctrl("\x1b[1;31m"), text("red")]
+        );
     }
 
     #[test]
@@ -361,13 +478,13 @@ mod tests {
             &b"\x1b[?25l"[..],
             &b"\x1b[m"[..],
         ] {
-            assert_eq!(demux(seq), vec![StreamItem::text(seq)], "seq {:?}", seq);
+            assert_eq!(demux(seq), vec![StreamItem::control(seq)], "seq {:?}", seq);
         }
     }
 
     #[test]
     fn csi_ending_in_z_without_leading_one_passes_through() {
-        assert_eq!(demux(b"\x1b[2;0;5z"), vec![text("\x1b[2;0;5z")]);
+        assert_eq!(demux(b"\x1b[2;0;5z"), vec![ctrl("\x1b[2;0;5z")]);
     }
 
     #[test]
@@ -411,14 +528,19 @@ mod tests {
     }
 
     /// Splitting a chunk can split a text run into two items; that is
-    /// legitimate, so compare streams with adjacent text runs merged.
+    /// legitimate, so compare streams with adjacent runs of the same kind
+    /// merged.
     fn coalesce(items: Vec<StreamItem>) -> Vec<StreamItem> {
         let mut out: Vec<StreamItem> = Vec::new();
         for item in items {
             match (out.last_mut(), item) {
-                (Some(StreamItem::Text { bytes: prev }), StreamItem::Text { bytes }) => {
-                    prev.extend_from_slice(&bytes)
-                }
+                (
+                    Some(StreamItem::Text {
+                        bytes: prev,
+                        prints: was,
+                    }),
+                    StreamItem::Text { bytes, prints },
+                ) if *was == prints => prev.extend_from_slice(&bytes),
                 (_, item) => out.push(item),
             }
         }
@@ -426,18 +548,55 @@ mod tests {
     }
 
     #[test]
-    fn lone_escape_followed_by_non_bracket_passes_through() {
-        assert_eq!(demux(b"\x1b(Btext"), vec![text("\x1b(Btext")]);
+    fn a_charset_selection_sequence_is_non_printing_to_its_last_byte() {
+        // ESC ( B is three bytes. Ending the sequence at ESC ( would leave the
+        // B looking like a character written to a cell, which would make the
+        // overlay think something had been drawn over the map.
+        assert_eq!(demux(b"\x1b(Btext"), vec![ctrl("\x1b(B"), text("text")]);
     }
 
     #[test]
     fn repeated_escapes_pass_through() {
-        assert_eq!(demux(b"\x1b\x1b(B"), vec![text("\x1b\x1b(B")]);
+        assert_eq!(demux(b"\x1b\x1b(B"), vec![ctrl("\x1b\x1b(B")]);
     }
 
     #[test]
-    fn high_bytes_survive_the_round_trip() {
-        // DECgraphics/IBMgraphics line drawing uses bytes above 0x7f.
+    fn an_operating_system_command_is_non_printing_including_its_payload() {
+        // dgamelaunch sets the window title this way on connect; the title
+        // text never reaches a cell.
+        assert_eq!(
+            demux(b"\x1b]2;nethack.alt.org\x07menu"),
+            vec![ctrl("\x1b]2;nethack.alt.org\x07"), text("menu")]
+        );
+    }
+
+    #[test]
+    fn an_operating_system_command_may_end_with_a_string_terminator() {
+        assert_eq!(
+            demux(b"\x1b]0;title\x1b\\x"),
+            vec![ctrl("\x1b]0;title\x1b\\"), text("x")]
+        );
+    }
+
+    #[test]
+    fn an_unterminated_operating_system_command_does_not_swallow_the_session() {
+        let mut input = b"\x1b]0;".to_vec();
+        input.extend(std::iter::repeat(b'a').take(MAX_OSC_LEN + 20));
+        let items = demux(&input);
+        let printed: usize = items
+            .iter()
+            .map(|i| match i {
+                StreamItem::Text { bytes, prints: true } => bytes.len(),
+                _ => 0,
+            })
+            .sum();
+        assert!(printed > 0, "the demuxer must recover, not consume forever");
+    }
+
+    #[test]
+    fn high_bytes_survive_the_round_trip_and_count_as_printing() {
+        // DECgraphics/IBMgraphics line drawing uses bytes above 0x7f, and each
+        // one still occupies a cell.
         let items = demux(b"\xc4\xb3\xda");
         assert_eq!(items, vec![StreamItem::text(&b"\xc4\xb3\xda"[..])]);
     }
@@ -450,7 +609,7 @@ mod tests {
         let total: usize = items
             .iter()
             .map(|i| match i {
-                StreamItem::Text { bytes } => bytes.len(),
+                StreamItem::Text { bytes, .. } => bytes.len(),
                 _ => 0,
             })
             .sum();
@@ -479,7 +638,7 @@ mod tests {
             demux(input),
             vec![
                 event(TileEvent::SelectWindow { winid: Some(3) }),
-                text("\x1b[3;1H"),
+                ctrl("\x1b[3;1H"),
                 event(TileEvent::GlyphStart {
                     tile: 2378,
                     flags: 0
@@ -496,7 +655,9 @@ mod tests {
                     tile: 337,
                     flags: 16
                 }),
-                text("\x1b[1;31md\x1b[0m"),
+                ctrl("\x1b[1;31m"),
+                text("d"),
+                ctrl("\x1b[0m"),
                 event(TileEvent::GlyphEnd),
                 event(TileEvent::FrameSync),
             ]

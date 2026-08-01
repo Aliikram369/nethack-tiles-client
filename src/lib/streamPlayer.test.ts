@@ -21,9 +21,13 @@ const noFlags: GlyphFlags = {
  * their callbacks fire in order. It tracks a cursor that advances one column
  * per printable byte, so tests can check *when* the cursor is read.
  */
+const COLS = 80;
+
 function fakeTerminal() {
   const queue: { data: Uint8Array; callback?: () => void }[] = [];
   const written: number[] = [];
+  /** What each cell holds, so the grid can read characters back. */
+  const cells = new Map<string, string>();
   let row = 0;
   let col = 0;
 
@@ -32,20 +36,43 @@ function fakeTerminal() {
       queue.push({ data, callback });
     },
     cursor: () => ({ row, col }),
+    size: () => ({ rows: 24, cols: COLS }),
+    readCell: (r, c) => cells.get(`${r},${c}`) ?? " ",
   };
 
   return {
     port,
-    /** Parses everything queued, running callbacks in order. */
+    /**
+     * Parses everything queued, running callbacks in order. Understands just
+     * enough of a terminal to be useful: `ESC[row;colH` moves the cursor
+     * (0-based here, to keep the test arithmetic obvious) and any other escape
+     * sequence is consumed without touching a cell.
+     */
     drain() {
+      let esc: number[] | null = null;
       while (queue.length > 0) {
         const { data, callback } = queue.shift()!;
         for (const byte of data) {
           written.push(byte);
-          if (byte === 0x0a) {
+          if (esc) {
+            esc.push(byte);
+            if (esc.length === 1) {
+              if (byte !== 0x5b) esc = null; // a two-byte escape
+            } else if (byte >= 0x40 && byte <= 0x7e) {
+              const move = /^\[(\d+);(\d+)H$/.exec(String.fromCharCode(...esc));
+              if (move) {
+                row = Number(move[1]);
+                col = Number(move[2]);
+              }
+              esc = null;
+            }
+          } else if (byte === 0x1b) {
+            esc = [];
+          } else if (byte === 0x0a) {
             row++;
             col = 0;
           } else {
+            cells.set(`${row},${col}`, String.fromCharCode(byte));
             col++;
           }
         }
@@ -60,7 +87,10 @@ function fakeTerminal() {
   };
 }
 
-const text = (s: string): StreamItem => ({ type: "text", bytes: s });
+/** Text that lands in cells. */
+const text = (s: string): StreamItem => ({ type: "text", bytes: s, prints: true });
+/** Escape sequences and control codes, which land in none. */
+const ctrl = (s: string): StreamItem => ({ type: "text", bytes: s, prints: false });
 const glyph = (tile: number, flags = noFlags): StreamItem => ({
   type: "event",
   event: { kind: "glyphStart", tile, flags, rawFlags: 0 },
@@ -98,7 +128,7 @@ describe("StreamPlayer", () => {
     // Five characters, then a glyph: the glyph belongs in column 5.
     player.feed([text("abcde"), glyph(344), text("d"), glyphEnd]);
     term.drain();
-    grid.resolve(() => "d");
+    grid.resolve(term.port.readCell);
 
     expect(grid.get(0, 5)?.tile).toBe(344);
   });
@@ -114,7 +144,7 @@ describe("StreamPlayer", () => {
     expect(cursorSpy).not.toHaveBeenCalled();
 
     term.drain();
-    expect(cursorSpy).toHaveBeenCalledTimes(1);
+    expect(cursorSpy).toHaveBeenCalled();
   });
 
   it("places consecutive glyphs in consecutive cells", () => {
@@ -134,7 +164,7 @@ describe("StreamPlayer", () => {
       glyphEnd,
     ]);
     term.drain();
-    grid.resolve(() => "x");
+    grid.resolve(term.port.readCell);
 
     expect(grid.get(0, 0)?.tile).toBe(10);
     expect(grid.get(0, 1)?.tile).toBe(11);
@@ -149,7 +179,7 @@ describe("StreamPlayer", () => {
 
     player.feed([glyph(7, pet), text("d"), glyphEnd]);
     term.drain();
-    grid.resolve(() => "d");
+    grid.resolve(term.port.readCell);
 
     expect(grid.get(0, 0)?.flags).toEqual(pet);
   });
@@ -161,7 +191,7 @@ describe("StreamPlayer", () => {
 
     player.feed([text("ab\nxy"), glyph(5), text("@"), glyphEnd]);
     term.drain();
-    grid.resolve(() => "@");
+    grid.resolve(term.port.readCell);
 
     expect(grid.get(1, 2)?.tile).toBe(5);
   });
@@ -197,7 +227,7 @@ describe("StreamPlayer", () => {
     player.feed([text("abc")]);
     player.feed([glyph(42), text("@"), glyphEnd]);
     term.drain();
-    grid.resolve(() => "@");
+    grid.resolve(term.port.readCell);
 
     expect(term.text()).toBe("abc@");
     expect(grid.get(0, 3)?.tile).toBe(42);
@@ -226,6 +256,140 @@ describe("StreamPlayer", () => {
     player.feed([]);
 
     expect(writeSpy).not.toHaveBeenCalled();
+  });
+
+  it("records the character the glyph itself wrote", () => {
+    const term = fakeTerminal();
+    const grid = new TileGrid();
+    const player = new StreamPlayer(term.port, grid, () => {});
+
+    player.feed([glyph(5), text("@"), glyphEnd, glyph(6), text("d"), glyphEnd]);
+    term.drain();
+
+    expect(grid.get(0, 0)?.ch).toBe("@");
+  });
+
+  it("retires a tile when a menu writes over its cell later in the frame", () => {
+    // The artifact bug. An unlit map cell is drawn as a space, and the menu
+    // covering it writes a space too, so nothing about the cell's contents
+    // changes -- only the fact that something wrote there.
+    const term = fakeTerminal();
+    const grid = new TileGrid();
+    const player = new StreamPlayer(term.port, grid, () =>
+      grid.resolve(term.port.readCell),
+    );
+
+    player.feed([
+      ctrl("\x1b[0;0H"),
+      glyph(2360),
+      text(" "),
+      glyphEnd,
+      ctrl("\x1b[0;0H"),
+      text(" Weapons"),
+    ]);
+    term.drain();
+
+    expect(grid.size).toBe(0);
+  });
+
+  it("keeps the tiles the covering window did not reach", () => {
+    const term = fakeTerminal();
+    const grid = new TileGrid();
+    const player = new StreamPlayer(term.port, grid, () =>
+      grid.resolve(term.port.readCell),
+    );
+
+    player.feed([
+      ctrl("\x1b[0;0H"),
+      glyph(10),
+      text("@"),
+      glyphEnd,
+      ctrl("\x1b[5;40H"),
+      text("Weapons"),
+    ]);
+    term.drain();
+
+    expect(grid.get(0, 0)?.tile).toBe(10);
+  });
+
+  it("retires exactly the cells a write covered, counting back from the cursor", () => {
+    const term = fakeTerminal();
+    const grid = new TileGrid();
+    const player = new StreamPlayer(term.port, grid, () =>
+      grid.resolve(term.port.readCell),
+    );
+
+    // Four tiles in a row, then three characters written over the middle two.
+    player.feed([
+      ctrl("\x1b[0;0H"),
+      glyph(1),
+      text("a"),
+      glyphEnd,
+      glyph(2),
+      text("b"),
+      glyphEnd,
+      glyph(3),
+      text("c"),
+      glyphEnd,
+      glyph(4),
+      text("d"),
+      glyphEnd,
+      ctrl("\x1b[0;1H"),
+      text("xy"),
+    ]);
+    term.drain();
+
+    expect(grid.get(0, 0)?.tile).toBe(1);
+    expect(grid.get(0, 1)).toBeUndefined();
+    expect(grid.get(0, 2)).toBeUndefined();
+    expect(grid.get(0, 3)?.tile).toBe(4);
+  });
+
+  it("does not treat the glyph's own character as damage", () => {
+    const term = fakeTerminal();
+    const grid = new TileGrid();
+    const player = new StreamPlayer(term.port, grid, () =>
+      grid.resolve(term.port.readCell),
+    );
+
+    player.feed([glyph(7), text("@"), glyphEnd]);
+    term.drain();
+
+    expect(grid.get(0, 0)?.tile).toBe(7);
+  });
+
+  it("does not anchor a glyph whose character has not arrived yet", () => {
+    // A chunk from the server can end between the start-glyph code and the
+    // character that follows it. Anchoring to whatever the cell happens to
+    // hold at that moment records the wrong character, and the tile is then
+    // dropped the instant the real one lands.
+    const term = fakeTerminal();
+    const grid = new TileGrid();
+    const player = new StreamPlayer(term.port, grid, () =>
+      grid.prune(term.port.readCell),
+    );
+
+    player.feed([ctrl("\x1b[0;0H"), glyph(42)]);
+    term.drain();
+    player.feed([text("@"), glyphEnd]);
+    term.drain();
+
+    expect(grid.get(0, 0)?.tile).toBe(42);
+    expect(grid.get(0, 0)?.ch).toBe("@");
+  });
+
+  it("settles at the end of a batch even without a frame sync", () => {
+    // Once NetHack exits, the dgamelaunch menus that follow contain no tile
+    // codes at all. Waiting for a frame sync means never looking again, and
+    // the last frame's tiles stay painted over the launcher.
+    const term = fakeTerminal();
+    const onSettle = vi.fn();
+    const player = new StreamPlayer(term.port, new TileGrid(), onSettle);
+
+    player.feed([text("l) Login")]);
+    term.drain();
+
+    expect(onSettle).toHaveBeenCalled();
   });
 
   it("still signals a frame when the frame carried no text", () => {

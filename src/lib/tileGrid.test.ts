@@ -31,7 +31,7 @@ describe("TileGrid", () => {
     grid.place(2, 3, 344, 16);
     grid.resolve(screen(["", "", "   d"]));
 
-    expect(grid.get(2, 3)).toEqual({ tile: 344, flags: 16, ch: "d" });
+    expect(grid.get(2, 3)).toEqual({ row: 2, col: 3, tile: 344, flags: 16, ch: "d" });
   });
 
   it("drops a tile once its cell holds a different character", () => {
@@ -73,7 +73,7 @@ describe("TileGrid", () => {
     grid.place(1, 1, 99, 4);
     grid.resolve(screen(["", " d"]));
 
-    expect(grid.get(1, 1)).toEqual({ tile: 99, flags: 4, ch: "d" });
+    expect(grid.get(1, 1)).toEqual({ row: 1, col: 1, tile: 99, flags: 4, ch: "d" });
     expect(grid.size).toBe(1);
   });
 
@@ -122,12 +122,65 @@ describe("TileGrid", () => {
     expect(grid.size).toBe(0);
   });
 
+  it("drops the tile in a cell that something else wrote to", () => {
+    const grid = grid_();
+    grid.place(1, 1, 10, 0);
+    grid.resolve(screen(["", " @"]));
+
+    grid.damage(1, 1);
+
+    expect(grid.size).toBe(0);
+  });
+
+  it("leaves neighbouring tiles alone when one cell is written to", () => {
+    const grid = grid_();
+    grid.place(1, 0, 10, 0);
+    grid.place(1, 1, 11, 0);
+    grid.resolve(screen(["", "@#"]));
+
+    grid.damage(1, 1);
+
+    expect(grid.size).toBe(1);
+    expect(grid.get(1, 0)?.tile).toBe(10);
+  });
+
+  it("drops a tile overwritten by the same character it already held", () => {
+    // The reason damage exists. An unlit map cell is drawn as a space, and so
+    // is the gap between two words of a menu drawn on top of it, so comparing
+    // characters can never tell the two apart -- the tile would survive and be
+    // painted over the menu.
+    const grid = grid_();
+    grid.place(1, 1, 2360, 0);
+    grid.resolve(screen(["", "  "]));
+    expect(grid.size).toBe(1);
+
+    grid.damage(1, 1);
+    grid.resolve(screen(["", "  "]));
+
+    expect(grid.size).toBe(0);
+  });
+
+  it("drops a glyph that is written over before it is anchored", () => {
+    const grid = grid_();
+    grid.place(1, 1, 10, 0);
+    grid.damage(1, 1);
+    grid.resolve(screen(["", " X"]));
+
+    expect(grid.size).toBe(0);
+  });
+
+  it("ignores damage to a cell that never had a tile", () => {
+    const grid = grid_();
+    expect(() => grid.damage(4, 4)).not.toThrow();
+    expect(grid.size).toBe(0);
+  });
+
   it("survives a blank cell, which the terminal reports as a space", () => {
     const grid = grid_();
     grid.place(1, 1, 2360, 0);
     grid.resolve(screen(["", "  "]));
 
-    expect(grid.get(1, 1)).toEqual({ tile: 2360, flags: 0, ch: " " });
+    expect(grid.get(1, 1)).toEqual({ row: 1, col: 1, tile: 2360, flags: 0, ch: " " });
     grid.resolve(screen(["", "  "]));
     expect(grid.size).toBe(1);
   });

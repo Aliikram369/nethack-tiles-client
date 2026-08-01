@@ -29,8 +29,10 @@ pub enum AutoLoginState {
     AwaitingUsername,
     /// Waiting for the password prompt.
     AwaitingPassword,
-    /// Credentials submitted; the client stops driving the session.
+    /// Credentials submitted; the outcome is not known yet.
     Done,
+    /// The server confirmed the login.
+    LoggedIn,
     /// The server rejected the credentials.
     Failed(String),
 }
@@ -86,18 +88,26 @@ impl AutoLogin {
         &self.state
     }
 
+    /// The account name being logged in, for status messages.
+    pub fn username(&self) -> &str {
+        &self.username
+    }
+
     /// True once the machine will send no further input.
     pub fn is_finished(&self) -> bool {
-        matches!(self.state, AutoLoginState::Done | AutoLoginState::Failed(_))
+        matches!(
+            self.state,
+            AutoLoginState::Done | AutoLoginState::LoggedIn | AutoLoginState::Failed(_)
+        )
     }
 
     /// True while the machine still has a reason to look at server output.
     ///
     /// This outlives [`Self::is_finished`]: after the password is submitted we
-    /// keep reading for a short while so a rejection is still noticed.
+    /// keep reading until the outcome is known, so a rejection is noticed.
     pub fn wants_output(&self) -> bool {
         match self.state {
-            AutoLoginState::Failed(_) => false,
+            AutoLoginState::Failed(_) | AutoLoginState::LoggedIn => false,
             AutoLoginState::Done => self.watched_after_submit < FAILURE_WATCH_BYTES,
             _ => true,
         }
@@ -122,10 +132,14 @@ impl AutoLogin {
             self.window.drain(..cut);
         }
 
-        // A rejection can arrive at any point after we start answering.
-        if mentions(&self.window, "login failed") || mentions(&self.window, "invalid password") {
-            self.state = AutoLoginState::Failed("the server rejected those credentials".into());
-            self.window.clear();
+        if self.state == AutoLoginState::Done {
+            self.judge_outcome();
+            return None;
+        }
+
+        // Some servers do say so outright, and it can arrive at any point.
+        if says_rejected(&self.window) {
+            self.reject();
             return None;
         }
 
@@ -149,6 +163,31 @@ impl AutoLogin {
         self.window.clear();
         self.state = next;
         Some(reply)
+    }
+
+    /// Decides whether the submitted credentials were accepted.
+    ///
+    /// dgamelaunch does not necessarily say anything when it rejects a
+    /// password -- nethack.alt.org simply redraws the "Not logged in." menu --
+    /// so the menu coming back is the rejection, and the account name on the
+    /// screen is the confirmation.
+    fn judge_outcome(&mut self) {
+        if mentions(&self.window, "logged in as") {
+            self.state = AutoLoginState::LoggedIn;
+            self.window.clear();
+        } else if says_rejected(&self.window)
+            || mentions(&self.window, "not logged in")
+            || offers_login_menu(&self.window)
+        {
+            self.reject();
+        }
+    }
+
+    fn reject(&mut self) {
+        self.state = AutoLoginState::Failed(
+            "the server rejected that game account name or password".into(),
+        );
+        self.window.clear();
     }
 }
 
@@ -179,13 +218,25 @@ pub(crate) fn strip_ansi(input: &str) -> String {
     out
 }
 
-/// True if any line looks like the dgamelaunch "login" menu entry, e.g.
-/// `l) login` or ` L) Log in`.
+/// True if the screen offers the dgamelaunch "login" entry, e.g. `l) Login`.
+///
+/// Deliberately *not* line-anchored. dgamelaunch paints its menu by moving the
+/// cursor -- `ESC[8;3Hl) Login ESC[9;3Hr) Register new user` -- and emits no
+/// newline anywhere on the screen, so once the escape codes are stripped the
+/// whole menu is a single line. Requiring `l)` to start a line meant this
+/// never matched a real server.
 fn offers_login_menu(text: &str) -> bool {
-    text.lines().any(|line| {
-        let l = line.trim().to_ascii_lowercase();
-        l.starts_with("l)") && l.contains("log")
+    let lower = text.to_ascii_lowercase();
+    lower.match_indices("l)").any(|(at, _)| {
+        // Reject `control)`: the `l` must start the entry, not end a word.
+        let standalone = at == 0 || !lower.as_bytes()[at - 1].is_ascii_alphanumeric();
+        standalone && lower[at + 2..].trim_start().starts_with("log")
     })
+}
+
+/// Rejection wording, for the servers that bother to send any.
+fn says_rejected(text: &str) -> bool {
+    mentions(text, "login failed") || mentions(text, "invalid password")
 }
 
 fn mentions(text: &str, needle: &str) -> bool {
@@ -208,6 +259,20 @@ mod tests {
  w) watch games in progress
  q) quit
  => ";
+
+    /// The real thing, captured from nethack.alt.org. Note it contains no
+    /// newlines at all: every entry is placed with `ESC[row;colH`.
+    const NAO_MENU: &str = "\x1b[H\x1b[2J\x1b[2d ## \x1b(B\x1b[0;1m\x1b[33mnethack.alt.org - \
+http://nethack.alt.org/\x1b[3;2H\x1b[39m\x1b(B\x1b[m##\x1b[4d\x08\x08## Games on this server \
+are recorded for in-progress viewing and playback!\x1b[6;3HNot logged in.\x1b[8;3Hl) \
+Login\x1b[9;3Hr) Register new user\x1b[10;3Hw) Watch games in progress\x1b[12;3Hs) server \
+info\x1b[13;3Hm) MOTD/news (updated: 2026.07.19)\x1b[15;3Hq) Quit\x1b[19;3H=> ";
+
+    /// The screen NAO draws once the password is accepted.
+    const NAO_LOGGED_IN: &str = "\x1b[H\x1b[2J\x1b[2d ## \x1b(B\x1b[0;1m\x1b[33mnethack.alt.org \
+- http://nethack.alt.org/\x1b[3;2H\x1b[39m\x1b(B\x1b[m##\x1b[4d\x08\x08##\x1b[6d\x08Logged in \
+as: \x1b(B\x1b[0;1mstaticoalt\x1b[8;3H\x1b(B\x1b[mc) Change password\x1b[9;3He) Change email \
+address\x1b[10;3Hw) Watch games in progress\x1b[13;3Hp) Play NetHack 5.0.0\x1b[22;3H=> ";
 
     #[test]
     fn strip_ansi_removes_csi_sequences() {
@@ -295,6 +360,71 @@ mod tests {
     }
 
     #[test]
+    fn the_menu_a_real_server_actually_sends_is_recognised() {
+        // dgamelaunch draws its menu with cursor positioning and never emits a
+        // newline, so anything that matches per line will never fire.
+        let mut a = login();
+        assert_eq!(a.observe(NAO_MENU), Some(b"l".to_vec()));
+    }
+
+    #[test]
+    fn a_full_nao_session_runs_end_to_end() {
+        let mut a = login();
+        let mut sent = Vec::new();
+        for chunk in [
+            NAO_MENU,
+            "\x1b[H\x1b[2J\x1b[2d ## nethack.alt.org\r\x1b[6d Please enter your username. \
+             (blank entry aborts)\r\x1b[8d => ",
+            "staticoalt\x1b[H\x1b[2J\x1b[2d ## nethack.alt.org\r\x1b[6d Please enter your \
+             password.\r\x1b[8d => ",
+            NAO_LOGGED_IN,
+        ] {
+            if let Some(bytes) = a.observe(chunk) {
+                sent.push(String::from_utf8(bytes).unwrap());
+            }
+        }
+        assert_eq!(sent, ["l", "ian\n", "hunter2\n"]);
+        assert_eq!(a.state(), &AutoLoginState::LoggedIn);
+    }
+
+    #[test]
+    fn a_confirmed_login_stops_watching_for_a_rejection() {
+        // Otherwise in-game text could still trip the failure detector.
+        let mut a = login();
+        a.observe(NAO_MENU);
+        a.observe("Please enter your username.");
+        a.observe("Please enter your password.");
+        a.observe(NAO_LOGGED_IN);
+        assert!(!a.wants_output());
+    }
+
+    #[test]
+    fn a_bad_password_is_detected_by_the_login_menu_coming_back() {
+        // NAO says nothing at all about the failure -- it just redraws the
+        // "Not logged in." menu. Watching for the words "login failed" would
+        // never notice.
+        let mut a = login();
+        a.observe(NAO_MENU);
+        a.observe("Please enter your username.");
+        a.observe("Please enter your password.");
+        a.observe(NAO_MENU);
+        assert!(
+            matches!(a.state(), AutoLoginState::Failed(_)),
+            "got {:?}",
+            a.state()
+        );
+    }
+
+    #[test]
+    fn the_login_menu_before_the_password_is_submitted_is_not_a_rejection() {
+        // The same menu is what starts the sequence; only its reappearance
+        // afterwards means anything.
+        let mut a = login();
+        a.observe(NAO_MENU);
+        assert_eq!(a.state(), &AutoLoginState::AwaitingUsername);
+    }
+
+    #[test]
     fn a_rejected_password_is_reported_as_failure() {
         let mut a = login();
         a.observe(MENU);
@@ -338,7 +468,7 @@ mod tests {
             }
         }
         assert_eq!(sent, ["l", "ian\n", "hunter2\n"]);
-        assert_eq!(a.state(), &AutoLoginState::Done);
+        assert_eq!(a.state(), &AutoLoginState::LoggedIn);
     }
 
     #[test]

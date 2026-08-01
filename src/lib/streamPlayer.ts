@@ -1,6 +1,7 @@
 /**
  * Replays the backend's ordered stream into the terminal, placing tiles at the
- * cells NetHack meant them for.
+ * cells NetHack meant them for and retiring them when something else takes
+ * those cells over.
  *
  * The cursor is the crux. In `tty_print_glyph` NetHack moves the cursor with
  * `tty_curs` *before* emitting the start-glyph escape code, then writes the
@@ -14,6 +15,13 @@
  * backend hands us an ordered stream instead of pre-computed coordinates: it
  * would otherwise have to reimplement a terminal emulator to know where the
  * cursor is.
+ *
+ * The same trick answers the harder question of which cells a *non*-map write
+ * landed on. The backend never mixes printing and non-printing bytes in one
+ * item, so a printing item occupies the cells running back from the cursor,
+ * one per byte. Any such cell that is not a glyph's own character has been
+ * written to by a menu, a message or the launcher, and can no longer be
+ * showing a tile.
  */
 
 import { latin1ToBytes, type GlyphFlags, type StreamItem } from "./protocol";
@@ -24,22 +32,41 @@ export interface TerminalPort {
   write(data: Uint8Array, callback?: () => void): void;
   /** Cursor position in viewport coordinates. */
   cursor(): { row: number; col: number };
+  size(): { rows: number; cols: number };
+  /** The character in a cell, or `null` when it is off screen. */
+  readCell(row: number, col: number): string | null;
 }
 
 export class StreamPlayer {
   private pending: Uint8Array[] = [];
+  /** True between a start-glyph and its end-glyph code. */
+  private inGlyph = false;
+  /** Whether anything has happened since the last settle was scheduled. */
+  private dirty = false;
 
   constructor(
     private readonly term: TerminalPort,
     private readonly grid: TileGrid<GlyphFlags>,
-    /** Called once the terminal has caught up with a frame boundary. */
-    private readonly onFrame: () => void,
+    /**
+     * Called once the terminal has caught up with a frame boundary or the end
+     * of a batch, after any glyphs have been anchored: the moment to prune
+     * stale tiles and repaint.
+     */
+    private readonly onSettled: () => void,
   ) {}
 
   feed(items: readonly StreamItem[]): void {
+    if (items.length === 0) return;
+
     for (const item of items) {
       if (item.type === "text") {
         this.pending.push(latin1ToBytes(item.bytes));
+        this.dirty = true;
+        // A glyph's own character is what the tile stands for, not damage.
+        if (item.prints && !this.inGlyph) {
+          const covered = item.bytes.length;
+          this.flush(() => this.damageEndingAtCursor(covered));
+        }
         continue;
       }
 
@@ -47,22 +74,88 @@ export class StreamPlayer {
       switch (event.kind) {
         case "glyphStart": {
           const { tile, flags } = event;
+          this.inGlyph = true;
+          this.dirty = true;
           this.flush(() => {
+            // The previous glyph's character is on screen by now; anchor it
+            // before this one moves the cursor on.
+            this.grid.commit(this.term.readCell);
             const { row, col } = this.term.cursor();
             this.grid.place(row, col, tile, flags);
           });
           break;
         }
-        case "frameSync":
-          this.flush(() => this.onFrame());
+        case "glyphEnd":
+          this.inGlyph = false;
           break;
-        // glyphEnd, selectWindow and sound need no terminal action: a glyph is
-        // only ever emitted for the map, so glyphStart alone identifies it.
+        case "frameSync":
+          this.dirty = false;
+          this.flush(() => this.settle());
+          break;
+        // selectWindow and sound need no terminal action: a glyph is only ever
+        // emitted for the map, so glyphStart alone identifies it.
         default:
           break;
       }
     }
-    this.flush();
+
+    // Settle even without a frame sync. NetHack emits one whenever it waits
+    // for a key (`tty_nhgetch`), but nothing else in the stream does -- once
+    // the game exits, dgamelaunch's own screens carry no tile codes at all.
+    // A batch that ended on a frame sync has already settled.
+    if (this.dirty) {
+      this.dirty = false;
+      this.flush(() => this.settle());
+    } else {
+      this.flush();
+    }
+  }
+
+  /**
+   * Anchors whatever is safe to anchor, then hands over to the caller to
+   * reconcile and repaint.
+   *
+   * A glyph still open here is one whose character has not arrived -- a chunk
+   * from the server ended between the start-glyph code and the character it
+   * describes. Anchoring it now would record whatever the cell held before,
+   * and the tile would be dropped the moment the real character landed, so it
+   * waits for the batch that closes it.
+   */
+  private settle(): void {
+    if (!this.inGlyph) {
+      this.grid.commit(this.term.readCell);
+    }
+    this.onSettled();
+  }
+
+  /**
+   * Retires the `count` cells ending at the cursor, which is where a printing
+   * write of that many characters must have landed.
+   *
+   * `count` is a byte count, which equals the column count for the ASCII and
+   * 8-bit line-drawing characters NetHack's tty port emits. A multi-byte UTF-8
+   * character would over-count and retire a neighbouring tile as well; that
+   * errs towards a tile reappearing on the next redraw rather than a stale one
+   * sitting on top of a menu.
+   */
+  private damageEndingAtCursor(count: number): void {
+    const { rows, cols } = this.term.size();
+    if (count > rows * cols) {
+      // More than a screenful: we cannot say what survived.
+      this.grid.clear();
+      return;
+    }
+
+    let { row, col } = this.term.cursor();
+    for (let i = 0; i < count; i++) {
+      col--;
+      if (col < 0) {
+        row--;
+        col = cols - 1;
+      }
+      if (row < 0) return;
+      this.grid.damage(row, col);
+    }
   }
 
   /**
@@ -78,6 +171,7 @@ export class StreamPlayer {
 }
 
 function concat(chunks: readonly Uint8Array[]): Uint8Array {
+  if (chunks.length === 0) return new Uint8Array(0);
   if (chunks.length === 1) return chunks[0];
   let total = 0;
   for (const c of chunks) total += c.length;

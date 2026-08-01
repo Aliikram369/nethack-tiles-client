@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { DisplayControls } from "./components/DisplayControls";
 import { GameTerminal } from "./components/GameTerminal";
 import { ProfileForm } from "./components/ProfileForm";
 import { TILES, Tile } from "./components/Tile";
 import type {
+  DisplaySettings,
   Profile,
   Status,
   TilesetManifest,
@@ -25,6 +27,12 @@ import {
 /** How long to wait for tile codes before suggesting the .nethackrc fix. */
 const TILEDATA_GRACE_MS = 40_000;
 
+/**
+ * How long to let display sliders settle before writing the profile. Dragging
+ * a slider fires continuously and each save is a disk write.
+ */
+const DISPLAY_SAVE_DEBOUNCE_MS = 600;
+
 function newProfile(tilesetId: string): Profile {
   return {
     id: `profile-${Date.now().toString(36)}`,
@@ -38,6 +46,9 @@ function newProfile(tilesetId: string): Profile {
     fontFamily: "Menlo, DejaVu Sans Mono, Consolas, monospace",
     fontSize: 16,
     scale: 1,
+    lineHeight: 1,
+    letterSpacing: 0,
+    pixelPerfect: false,
     autoLogin: false,
   };
 }
@@ -55,8 +66,11 @@ export default function App() {
   const [tilesEnabled, setTilesEnabled] = useState(true);
   const [tiledataHint, setTiledataHint] = useState(false);
   const [sheetMismatch, setSheetMismatch] = useState<number | null>(null);
+  const [showDisplay, setShowDisplay] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const graceTimer = useRef<number | null>(null);
+  const displaySaveTimer = useRef<number | null>(null);
+  const unsavedDisplay = useRef<Profile | null>(null);
 
   const selected = useMemo(
     () => profiles.find((p) => p.id === selectedId) ?? null,
@@ -134,9 +148,38 @@ export default function App() {
   };
 
   const disconnect = async () => {
+    // A tweak made a moment before quitting is still worth keeping.
+    await flushDisplay();
     await sshDisconnect().catch(() => {});
     setConnected(null);
+    setShowDisplay(false);
     setTiledataHint(false);
+  };
+
+  /**
+   * Applies a display change to the running game immediately, and writes it to
+   * the profile once the player stops adjusting.
+   */
+  const changeDisplay = (settings: DisplaySettings) => {
+    if (!connected) return;
+    const updated = { ...connected, ...settings };
+    setConnected(updated);
+    setProfiles((list) => list.map((p) => (p.id === updated.id ? updated : p)));
+
+    unsavedDisplay.current = updated;
+    if (displaySaveTimer.current) window.clearTimeout(displaySaveTimer.current);
+    displaySaveTimer.current = window.setTimeout(() => {
+      void flushDisplay();
+    }, DISPLAY_SAVE_DEBOUNCE_MS);
+  };
+
+  /** Writes any adjustment still waiting out its debounce. */
+  const flushDisplay = async () => {
+    const profile = unsavedDisplay.current;
+    if (!profile) return;
+    unsavedDisplay.current = null;
+    if (displaySaveTimer.current) window.clearTimeout(displaySaveTimer.current);
+    await saveProfile(profile, null).catch((e) => setError(String(e)));
   };
 
   const handleSave = async (profile: Profile, password: string | null) => {
@@ -178,6 +221,12 @@ export default function App() {
             />
             Tiles
           </label>
+          <button
+            onClick={() => setShowDisplay((open) => !open)}
+            aria-pressed={showDisplay}
+          >
+            Display
+          </button>
           <button onClick={() => void disconnect()}>Disconnect</button>
         </header>
 
@@ -206,12 +255,21 @@ export default function App() {
           </p>
         )}
 
-        <GameTerminal
-          profile={connected}
-          tileset={tileset}
-          tilesEnabled={tilesEnabled}
-          onSheetMismatch={setSheetMismatch}
-        />
+        <div className="play-area">
+          <GameTerminal
+            profile={connected}
+            tileset={tileset}
+            tilesEnabled={tilesEnabled}
+            onSheetMismatch={setSheetMismatch}
+          />
+          {showDisplay && (
+            <DisplayControls
+              settings={connected}
+              onChange={changeDisplay}
+              onClose={() => setShowDisplay(false)}
+            />
+          )}
+        </div>
       </div>
     );
   }

@@ -169,6 +169,71 @@ describe("paintOverlay", () => {
     expect(ctx.fillRect).toHaveBeenCalled();
   });
 
+  it("draws a pixel-perfect tile at a whole multiple of its size, centred", () => {
+    const ctx = fakeContext();
+    paintOverlay(
+      ctx as never,
+      target({ cellWidth: 40, cellHeight: 40, pixelPerfect: true }),
+      [{ row: 0, col: 0, tile: 0, flags: noFlags, ch: "@" }],
+    );
+
+    // A 16px tile in a 40px cell doubles to 32px, leaving 4px on each side.
+    expect(ctx.drawImage).toHaveBeenCalledWith(
+      expect.anything(),
+      0,
+      0,
+      16,
+      16,
+      4,
+      4,
+      32,
+      32,
+    );
+  });
+
+  it("stretches to the cell when pixel-perfect would not fit even once", () => {
+    // A default terminal cell is much narrower than 16px. Drawing the tile at
+    // its native size there would spill over the neighbouring columns, so the
+    // stretched fit is the better of the two.
+    const ctx = fakeContext();
+    paintOverlay(
+      ctx as never,
+      target({ cellWidth: 10, cellHeight: 20, pixelPerfect: true }),
+      [{ row: 0, col: 0, tile: 0, flags: noFlags, ch: "@" }],
+    );
+
+    expect(ctx.drawImage).toHaveBeenCalledWith(
+      expect.anything(),
+      0,
+      0,
+      16,
+      16,
+      0,
+      0,
+      10,
+      20,
+    );
+  });
+
+  it("stretches to the cell when pixel-perfect is off", () => {
+    const ctx = fakeContext();
+    paintOverlay(ctx as never, target({ cellWidth: 40, cellHeight: 40 }), [
+      { row: 0, col: 0, tile: 0, flags: noFlags, ch: "@" },
+    ]);
+
+    expect(ctx.drawImage).toHaveBeenCalledWith(
+      expect.anything(),
+      0,
+      0,
+      16,
+      16,
+      0,
+      0,
+      40,
+      40,
+    );
+  });
+
   it("keeps pixel art crisp by disabling image smoothing", () => {
     const ctx = fakeContext();
     paintOverlay(ctx as never, target(), [

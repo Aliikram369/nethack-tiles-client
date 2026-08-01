@@ -64,6 +64,8 @@ pub struct SshConfig {
     pub cols: u32,
     pub rows: u32,
     pub host_key_policy: HostKeyPolicy,
+    /// How long to wait for the connection and handshake.
+    pub connect_timeout: Duration,
 }
 
 impl SshConfig {
@@ -80,6 +82,7 @@ impl SshConfig {
             cols: 80,
             rows: 24,
             host_key_policy: HostKeyPolicy::default(),
+            connect_timeout: Duration::from_secs(20),
         }
     }
 }
@@ -109,6 +112,18 @@ pub enum SshError {
     HostKeyChanged { host: String, port: u16 },
     #[error("the host key for {host}:{port} is not in ~/.ssh/known_hosts")]
     HostKeyUnknown { host: String, port: u16 },
+    #[error("could not check the host key for {host}:{port}: {message}")]
+    HostKeyUncheckable {
+        host: String,
+        port: u16,
+        message: String,
+    },
+    #[error("{host}:{port} did not answer within {seconds}s")]
+    ConnectTimeout {
+        host: String,
+        port: u16,
+        seconds: u64,
+    },
     #[error("the server rejected every configured authentication method")]
     AuthFailed,
     #[error("could not read the private key {path}: {message}")]
@@ -121,10 +136,14 @@ pub enum SshError {
 
 /// Why `check_server_key` rejected a key, recorded so `connect` can report
 /// something more useful than russh's generic "unknown key".
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum HostKeyRejection {
     Changed,
     Unknown,
+    /// `known_hosts` could not be consulted at all, e.g. it is unreadable.
+    /// Worth saying out loud: "not in known_hosts" would send someone looking
+    /// for a missing line in a file we never managed to open.
+    Uncheckable(String),
 }
 
 struct ClientHandler {
@@ -173,7 +192,8 @@ impl client::Handler for ClientHandler {
             }
             Err(e) => {
                 log::warn!("known_hosts lookup failed: {e}");
-                *self.rejection.lock().unwrap() = Some(HostKeyRejection::Unknown);
+                *self.rejection.lock().unwrap() =
+                    Some(HostKeyRejection::Uncheckable(e.to_string()));
                 Ok(false)
             }
         }
@@ -248,13 +268,22 @@ pub async fn connect(
         config.host, config.port
     )));
 
-    let mut handle = client::connect(
-        russh_config,
-        (config.host.clone(), config.port),
-        handler,
+    // Bounded, because the failure this guards against looks exactly like a
+    // hang: a server that accepts the TCP connection and then never finishes
+    // the handshake would otherwise leave the UI saying "Connecting..." for
+    // ever, with nothing to act on.
+    let attempt = tokio::time::timeout(
+        config.connect_timeout,
+        client::connect(russh_config, (config.host.clone(), config.port), handler),
     )
     .await
-    .map_err(|source| match *rejection.lock().unwrap() {
+    .map_err(|_| SshError::ConnectTimeout {
+        host: config.host.clone(),
+        port: config.port,
+        seconds: config.connect_timeout.as_secs(),
+    })?;
+
+    let mut handle = attempt.map_err(|source| match &*rejection.lock().unwrap() {
         Some(HostKeyRejection::Changed) => SshError::HostKeyChanged {
             host: config.host.clone(),
             port: config.port,
@@ -262,6 +291,11 @@ pub async fn connect(
         Some(HostKeyRejection::Unknown) => SshError::HostKeyUnknown {
             host: config.host.clone(),
             port: config.port,
+        },
+        Some(HostKeyRejection::Uncheckable(message)) => SshError::HostKeyUncheckable {
+            host: config.host.clone(),
+            port: config.port,
+            message: message.clone(),
         },
         None => SshError::Connect {
             host: config.host.clone(),
@@ -271,7 +305,12 @@ pub async fn connect(
     })?;
 
     authenticate(&mut handle, &config).await?;
-    let _ = events.send(SshEvent::Status("Authenticated".into()));
+    // Deliberately explicit: this is the *shared* SSH account, and saying
+    // "Authenticated" here reads as though the player's game account is in.
+    let _ = events.send(SshEvent::Status(format!(
+        "SSH connected as {} -- game login next",
+        config.user
+    )));
 
     let channel = handle.channel_open_session().await?;
     channel
@@ -434,6 +473,27 @@ mod tests {
             SshConfig::dgamelaunch("h", 22, "u").host_key_policy,
             HostKeyPolicy::TrustOnFirstUse
         );
+    }
+
+    #[test]
+    fn connecting_is_bounded_so_a_stalled_handshake_cannot_hang_the_ui() {
+        let c = SshConfig::dgamelaunch("h", 22, "u");
+        assert!(c.connect_timeout > Duration::ZERO);
+        assert!(c.connect_timeout <= Duration::from_secs(60));
+    }
+
+    #[test]
+    fn an_unreadable_known_hosts_is_not_reported_as_a_missing_entry() {
+        // Sending someone to look for a missing line in a file we never
+        // managed to open wastes their afternoon.
+        let uncheckable = SshError::HostKeyUncheckable {
+            host: "nethack.alt.org".into(),
+            port: 22,
+            message: "Permission denied (os error 1)".into(),
+        };
+        let rendered = uncheckable.to_string();
+        assert!(rendered.contains("could not check"), "{rendered}");
+        assert!(rendered.contains("Permission denied"), "{rendered}");
     }
 
     #[test]

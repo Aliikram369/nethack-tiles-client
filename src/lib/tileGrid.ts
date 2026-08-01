@@ -6,12 +6,16 @@
  * screen clears all paint over map cells without telling us to remove
  * anything.
  *
- * Rather than emulating the terminal to work that out, this grid uses the
- * terminal buffer itself as the source of truth: when a tile is placed we
- * record the character NetHack drew in that cell, and on every frame we drop
- * any tile whose cell no longer holds that character. A menu, a message or a
- * clear-screen changes the character, so the tile disappears on its own; a
- * redraw of the same glyph writes the same character, so the tile survives.
+ * Two independent signals retire a tile, because neither is sufficient alone:
+ *
+ * - {@link damage}, the primary one. The caller knows which cells each write
+ *   landed on, and a cell written by anything other than a map glyph is no
+ *   longer showing that glyph. This is the only thing that catches an
+ *   overwrite with the *same* character -- an unlit map cell and the gap
+ *   between two words of a menu are both a space.
+ * - the recorded character, as a backstop. A tile also goes if its cell no
+ *   longer holds the character NetHack drew there, which covers anything that
+ *   moves content around behind our back, such as a scroll or a resize.
  */
 
 import type { GlyphFlags } from "./protocol";
@@ -38,7 +42,10 @@ export interface TileEntry<F> extends PlacedTile<F> {
 const key = (row: number, col: number) => `${row},${col}`;
 
 export class TileGrid<F = GlyphFlags> {
-  private tiles = new Map<string, PlacedTile<F>>();
+  // Values carry their own coordinates: pruning walks every tile on every
+  // batch of server output, and parsing them back out of the key each time
+  // showed up as pure allocation.
+  private tiles = new Map<string, TileEntry<F>>();
   /** Glyphs seen this frame whose character has not been read back yet. */
   private pending: { row: number; col: number; tile: number; flags: F }[] = [];
 
@@ -53,11 +60,17 @@ export class TileGrid<F = GlyphFlags> {
 
   /**
    * Reads back the characters for glyphs placed since the last call and
-   * commits them, then drops every tile whose cell has since changed.
+   * commits them.
    *
-   * Call once per frame, after the terminal has processed the frame's output.
+   * Call once the terminal has processed the character that follows each
+   * start-glyph code. NetHack writes exactly one character between
+   * `AVTC_GLYPH_START` and `AVTC_GLYPH_END` (`tty_print_glyph` in
+   * `win/tty/wintty.c`), so by the next glyph the character is on screen.
+   * Reading it any later risks recording whatever was drawn *over* the cell
+   * instead, which would anchor the tile to the very thing that should have
+   * retired it.
    */
-  resolve(readCell: CellReader): void {
+  commit(readCell: CellReader): void {
     for (const { row, col, tile, flags } of this.pending) {
       const ch = readCell(row, col);
       if (ch === null) {
@@ -65,29 +78,46 @@ export class TileGrid<F = GlyphFlags> {
         this.tiles.delete(key(row, col));
         continue;
       }
-      this.tiles.set(key(row, col), { tile, flags, ch });
+      this.tiles.set(key(row, col), { row, col, tile, flags, ch });
     }
     this.pending.length = 0;
+  }
 
+  /**
+   * Retires the tile at a cell that something has written to.
+   *
+   * Also discards any glyph still waiting to be anchored there. A glyph is
+   * placed as soon as its start code arrives but anchored a little later, and
+   * without this a write that lands in between would be undone when the
+   * anchor finally resolved -- putting the tile back on top of whatever
+   * covered it.
+   */
+  damage(row: number, col: number): void {
+    this.tiles.delete(key(row, col));
+    this.pending = this.pending.filter((p) => p.row !== row || p.col !== col);
+  }
+
+  /** Drops every tile whose cell no longer holds the character it recorded. */
+  prune(readCell: CellReader): void {
     for (const [k, placed] of this.tiles) {
-      const [row, col] = k.split(",").map(Number);
-      if (readCell(row, col) !== placed.ch) {
+      if (readCell(placed.row, placed.col) !== placed.ch) {
         this.tiles.delete(k);
       }
     }
   }
 
-  /** Every tile currently on screen. */
-  entries(): TileEntry<F>[] {
-    const out: TileEntry<F>[] = [];
-    for (const [k, placed] of this.tiles) {
-      const [row, col] = k.split(",").map(Number);
-      out.push({ row, col, ...placed });
-    }
-    return out;
+  /** {@link commit} followed by {@link prune}; the end-of-batch settle. */
+  resolve(readCell: CellReader): void {
+    this.commit(readCell);
+    this.prune(readCell);
   }
 
-  get(row: number, col: number): PlacedTile<F> | undefined {
+  /** Every tile currently on screen. */
+  entries(): TileEntry<F>[] {
+    return [...this.tiles.values()];
+  }
+
+  get(row: number, col: number): TileEntry<F> | undefined {
     return this.tiles.get(key(row, col));
   }
 

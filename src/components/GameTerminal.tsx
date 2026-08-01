@@ -56,28 +56,45 @@ export function GameTerminal({
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   // Kept in refs so the render loop reads current values without re-creating
-  // the terminal, which would drop the session's scrollback.
+  // the terminal, which would wipe the screen mid-game.
   const tilesetRef = useRef(tileset);
   const enabledRef = useRef(tilesEnabled);
+  const displayRef = useRef(profile);
   const repaintRef = useRef<() => void>(() => {});
+  const applyDisplayRef = useRef<() => void>(() => {});
   const mismatchRef = useRef(onSheetMismatch);
-  mismatchRef.current = onSheetMismatch;
 
   tilesetRef.current = tileset;
   enabledRef.current = tilesEnabled;
+  displayRef.current = profile;
+  mismatchRef.current = onSheetMismatch;
 
-  // Repaint when the tileset or the toggle changes, without a full rebuild.
+  // Font and cell geometry are tuned while playing, so they are applied to the
+  // live terminal rather than by rebuilding it.
+  useEffect(() => {
+    applyDisplayRef.current();
+  }, [
+    profile.fontFamily,
+    profile.fontSize,
+    profile.scale,
+    profile.lineHeight,
+    profile.letterSpacing,
+  ]);
+
   useEffect(() => {
     repaintRef.current();
-  }, [tileset, tilesEnabled]);
+  }, [tileset, tilesEnabled, profile.pixelPerfect]);
 
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
 
+    const initial = displayRef.current;
     const term = new Terminal({
-      fontFamily: profile.fontFamily,
-      fontSize: Math.round(profile.fontSize * profile.scale),
+      fontFamily: initial.fontFamily,
+      fontSize: Math.round(initial.fontSize * initial.scale),
+      lineHeight: initial.lineHeight,
+      letterSpacing: initial.letterSpacing,
       theme: THEME,
       cursorBlink: true,
       // NetHack repaints in place; scrollback only gets in the way and would
@@ -122,6 +139,8 @@ export function GameTerminal({
         row: term.buffer.active.cursorY,
         col: term.buffer.active.cursorX,
       }),
+      size: () => ({ rows: term.rows, cols: term.cols }),
+      readCell,
     };
 
     let sheet: HTMLImageElement | null = null;
@@ -179,6 +198,7 @@ export function GameTerminal({
           cellHeight: screen.height / term.rows,
           widthPx: screen.width,
           heightPx: screen.height,
+          pixelPerfect: displayRef.current.pixelPerfect,
         },
         grid.entries(),
       );
@@ -197,8 +217,10 @@ export function GameTerminal({
     };
     repaintRef.current = requestPaint;
 
+    // The player anchors glyphs itself, since only it knows whether one is
+    // still open; this is left to drop whatever no longer holds up.
     const player = new StreamPlayer(port, grid, () => {
-      grid.resolve(readCell);
+      grid.prune(readCell);
       requestPaint();
     });
 
@@ -215,6 +237,15 @@ export function GameTerminal({
       requestPaint();
     };
 
+    applyDisplayRef.current = () => {
+      const d = displayRef.current;
+      term.options.fontFamily = d.fontFamily;
+      term.options.fontSize = Math.max(6, Math.round(d.fontSize * d.scale));
+      term.options.lineHeight = Math.max(1, d.lineHeight);
+      term.options.letterSpacing = Math.max(0, d.letterSpacing);
+      applyFit();
+    };
+
     const observer = new ResizeObserver(() => applyFit());
     observer.observe(host);
     applyFit();
@@ -226,9 +257,12 @@ export function GameTerminal({
       void unlistenStream.then((un) => un());
       term.dispose();
       canvas.remove();
+      repaintRef.current = () => {};
+      applyDisplayRef.current = () => {};
     };
-    // Rebuilding on font changes is intentional: xterm needs to re-measure.
-  }, [profile.fontFamily, profile.fontSize, profile.scale]);
+    // Built once per session: everything tunable is applied to the live
+    // terminal above.
+  }, []);
 
   return <div className="terminal-host" ref={hostRef} />;
 }

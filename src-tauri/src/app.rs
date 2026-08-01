@@ -65,7 +65,7 @@ pub enum StatusPayload {
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum AppStreamItem {
-    Text { bytes: String },
+    Text { bytes: String, prints: bool },
     Event { event: AppTileEvent },
 }
 
@@ -94,8 +94,9 @@ impl AppStreamItem {
         match item {
             // Latin-1: each byte becomes the char of the same value, so the
             // frontend can reconstruct the exact bytes.
-            StreamItem::Text { bytes } => AppStreamItem::Text {
+            StreamItem::Text { bytes, prints } => AppStreamItem::Text {
                 bytes: bytes.iter().map(|&b| b as char).collect(),
+                prints,
             },
             StreamItem::Event { event } => AppStreamItem::Event {
                 event: match event {
@@ -133,7 +134,7 @@ pub struct AppState {
 impl AppState {
     pub fn new() -> Result<Self, String> {
         let path = ProfileStore::default_path().map_err(|e| e.to_string())?;
-        let profiles =
+        let mut profiles =
             ProfileStore::load(path, Box::new(KeyringSecrets)).map_err(|e| e.to_string())?;
 
         let mut tilesets = HashMap::new();
@@ -146,12 +147,35 @@ impl AppState {
             tilesets.insert(id, tileset);
         }
 
+        // Nobody's first run should start on an empty screen: offer the two
+        // public servers, already pointed at a matching tile sheet.
+        if profiles.is_first_run() {
+            for mut profile in crate::profiles::default_profiles() {
+                profile.tileset_id = sheet_for_version(&tilesets, profile.version);
+                if let Err(e) = profiles.upsert(profile) {
+                    log::warn!("could not write the default profiles: {e}");
+                }
+            }
+        }
+
         Ok(AppState {
             profiles: Mutex::new(profiles),
             tilesets: Mutex::new(tilesets),
             session: Mutex::new(None),
         })
     }
+}
+
+/// Picks the bundled sheet built for `version`. Tile indices are positional
+/// and renumbered between NetHack lines, so this pairing is not cosmetic.
+fn sheet_for_version(tilesets: &HashMap<String, Tileset>, version: NetHackVersion) -> String {
+    tilesets
+        .values()
+        .map(|t| t.manifest())
+        .find(|m| m.version == version)
+        .or_else(|| tilesets.values().map(|t| t.manifest()).next())
+        .map(|m| m.id.clone())
+        .unwrap_or_default()
 }
 
 type CmdResult<T> = Result<T, String>;
@@ -385,8 +409,19 @@ async fn consume_session(
                     if let Some(reply) = login.observe(&text) {
                         let _ = session.write(reply);
                     }
-                    if let AutoLoginState::Failed(reason) = login.state() {
-                        emit_status(&app, StatusPayload::Error(reason.clone()));
+                    // Say which login this is about: the status bar has
+                    // already reported the *SSH* connection, and the two are
+                    // different accounts entirely.
+                    let outcome = match login.state() {
+                        AutoLoginState::Failed(reason) => Some(StatusPayload::Error(reason.clone())),
+                        AutoLoginState::LoggedIn => Some(StatusPayload::Info(format!(
+                            "Logged in to the game server as {}",
+                            login.username()
+                        ))),
+                        _ => None,
+                    };
+                    if let Some(status) = outcome {
+                        emit_status(&app, status);
                         autologin = None;
                     } else if !login.wants_output() {
                         autologin = None;

@@ -32,6 +32,12 @@ fn default_font_size() -> u32 {
 fn default_scale() -> f32 {
     1.0
 }
+fn default_line_height() -> f32 {
+    1.0
+}
+fn default_letter_spacing() -> f32 {
+    0.0
+}
 
 /// One saved server connection plus its display preferences.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -60,6 +66,19 @@ pub struct Profile {
     pub font_size: u32,
     #[serde(default = "default_scale")]
     pub scale: f32,
+    /// Cell height as a multiple of the font size. A tile is drawn to fill its
+    /// terminal cell, so this is how tall the tiles are.
+    #[serde(default = "default_line_height")]
+    pub line_height: f32,
+    /// Extra pixels of cell width. Terminal cells are far narrower than they
+    /// are tall, which squashes a square tile; this is how the player widens
+    /// them back out.
+    #[serde(default = "default_letter_spacing")]
+    pub letter_spacing: f32,
+    /// Draw tiles at a whole-number multiple of their native pixel size,
+    /// centred in the cell, rather than stretched to fill it.
+    #[serde(default)]
+    pub pixel_perfect: bool,
     /// Type the game username and password automatically at the dgamelaunch
     /// prompt.
     #[serde(default)]
@@ -81,9 +100,34 @@ impl Profile {
             font_family: default_font_family(),
             font_size: default_font_size(),
             scale: default_scale(),
+            line_height: default_line_height(),
+            letter_spacing: default_letter_spacing(),
+            pixel_perfect: false,
             auto_login: false,
         }
     }
+}
+
+/// The servers to offer someone who has never used the app before.
+///
+/// `tileset_id` is left empty deliberately: which sheet matches a NetHack
+/// version is the tileset registry's business, and the caller fills it in.
+pub fn default_profiles() -> Vec<Profile> {
+    vec![
+        Profile {
+            // NAO's play menu currently offers 5.0.0 and nothing else.
+            host: "nethack.alt.org".into(),
+            ssh_user: "nethack".into(),
+            version: NetHackVersion::V50,
+            ..Profile::new("nethack-alt-org", "NetHack.alt.org")
+        },
+        Profile {
+            host: "hardfought.org".into(),
+            ssh_user: "nethack".into(),
+            version: NetHackVersion::V36,
+            ..Profile::new("hardfought-org", "Hardfought")
+        },
+    ]
 }
 
 /// The on-disk document.
@@ -199,6 +243,10 @@ pub struct ProfileStore {
     path: PathBuf,
     doc: ProfileDocument,
     secrets: Box<dyn SecretStore>,
+    /// True when there was no config file at all, i.e. a first run. Distinct
+    /// from "no profiles": someone who has deleted every profile has still
+    /// expressed a preference, and should not have defaults handed back.
+    first_run: bool,
 }
 
 impl ProfileStore {
@@ -215,12 +263,16 @@ impl ProfileStore {
         secrets: Box<dyn SecretStore>,
     ) -> Result<Self, ProfileError> {
         let path = path.into();
+        let mut first_run = false;
         let doc = match std::fs::read_to_string(&path) {
             Ok(text) => toml::from_str(&text).map_err(|source| ProfileError::Parse {
                 path: path.clone(),
                 source,
             })?,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => ProfileDocument::default(),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                first_run = true;
+                ProfileDocument::default()
+            }
             Err(source) => {
                 return Err(ProfileError::Read {
                     path: path.clone(),
@@ -232,7 +284,13 @@ impl ProfileStore {
             path,
             doc,
             secrets,
+            first_run,
         })
+    }
+
+    /// True when no config file existed, so nothing has been chosen yet.
+    pub fn is_first_run(&self) -> bool {
+        self.first_run
     }
 
     pub fn path(&self) -> &Path {
@@ -366,6 +424,45 @@ mod tests {
         let s = store(&f.path);
         assert!(s.profiles().is_empty());
         assert_eq!(s.last_used(), None);
+    }
+
+    #[test]
+    fn a_first_run_is_told_apart_from_a_deliberately_emptied_store() {
+        let f = fixture("firstrun");
+        assert!(store(&f.path).is_first_run());
+
+        let mut s = store(&f.path);
+        s.upsert(sample()).unwrap();
+        s.remove("nao").unwrap();
+
+        let reloaded = store(&f.path);
+        assert!(reloaded.profiles().is_empty());
+        assert!(
+            !reloaded.is_first_run(),
+            "a file exists, so the empty list is a choice"
+        );
+    }
+
+    #[test]
+    fn the_default_profiles_are_the_two_public_servers() {
+        let hosts: Vec<_> = default_profiles()
+            .iter()
+            .map(|p| p.host.clone())
+            .collect();
+        assert_eq!(hosts, ["nethack.alt.org", "hardfought.org"]);
+    }
+
+    #[test]
+    fn the_default_profiles_are_ready_to_connect_to() {
+        for p in default_profiles() {
+            assert!(!p.id.is_empty(), "{p:?}");
+            assert!(!p.name.is_empty(), "{p:?}");
+            assert_eq!(p.ssh_user, "nethack", "the shared dgamelaunch user");
+            assert_eq!(p.port, 22);
+            // No credentials are invented; the player supplies those.
+            assert!(p.game_user.is_empty());
+            assert!(!p.auto_login);
+        }
     }
 
     #[test]
@@ -519,8 +616,32 @@ tilesetId = "vanilla-3.6.7-16"
         assert_eq!(p.port, 22);
         assert_eq!(p.font_size, 16);
         assert_eq!(p.scale, 1.0);
+        assert_eq!(p.line_height, 1.0);
+        assert_eq!(p.letter_spacing, 0.0);
+        assert!(!p.pixel_perfect);
         assert!(!p.auto_login);
         assert_eq!(p.version, NetHackVersion::V36);
+    }
+
+    #[test]
+    fn display_settings_survive_a_reload() {
+        // These are tuned live while playing, so they have to stick.
+        let f = fixture("display");
+        let mut s = store(&f.path);
+        s.upsert(Profile {
+            font_size: 22,
+            line_height: 1.4,
+            letter_spacing: 6.5,
+            pixel_perfect: true,
+            ..sample()
+        })
+        .unwrap();
+
+        let p = store(&f.path).get("nao").cloned().expect("profile");
+        assert_eq!(p.font_size, 22);
+        assert_eq!(p.line_height, 1.4);
+        assert_eq!(p.letter_spacing, 6.5);
+        assert!(p.pixel_perfect);
     }
 
     #[test]

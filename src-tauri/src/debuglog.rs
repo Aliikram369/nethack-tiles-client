@@ -55,7 +55,7 @@ impl<W: Write> TileDebugLog<W> {
     pub fn observe(&mut self, items: &[StreamItem]) {
         for item in items {
             match item {
-                StreamItem::Text { bytes } => {
+                StreamItem::Text { bytes, .. } => {
                     if let Some(pending) = self.pending.as_mut() {
                         let text: String = bytes.iter().map(|&b| b as char).collect();
                         pending.text.push_str(&printable(&text));
@@ -169,6 +169,7 @@ mod tests {
     fn text(s: &str) -> StreamItem {
         StreamItem::Text {
             bytes: s.as_bytes().to_vec(),
+            prints: true,
         }
     }
 

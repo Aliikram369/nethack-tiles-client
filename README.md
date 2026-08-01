@@ -47,8 +47,17 @@ cargo test --manifest-path src-tauri/Cargo.toml  # backend
 
 The parts with real logic are pure and unit tested: the escape-code demuxer,
 glyph-flag decoding, tileset geometry, the profile store, the dgamelaunch login
-state machine, the tile grid, the stream player and the overlay painter. The
-SSH transport itself is covered by manual smoke testing against a live server.
+state machine, the tile grid, the stream player and the overlay painter. Where
+a test needed to know what a server really sends, the fixture is a verbatim
+capture rather than an invention.
+
+The SSH transport only meets the login machine over a network, so that pairing
+has its own smoke test, ignored by default:
+
+```sh
+NHTILES_TEST_USER=someaccount NHTILES_TEST_PASS=secret \
+  cargo test --manifest-path src-tauri/Cargo.toml --test live_login -- --ignored
+```
 
 ## How tiles work
 
@@ -85,10 +94,31 @@ decoded per profile version in `src-tauri/src/glyph.rs`, which is the single
 source of truth — the backend sends the frontend decoded booleans, never raw
 bits.
 
-Stale tiles are handled without terminal emulation too: the tile grid records
-the character NetHack drew in each cell and drops any tile whose cell no longer
-holds it, so menus, message lines and screen clears remove tiles by themselves
-(`src/lib/tileGrid.ts`).
+**A tile has to go when something writes over its cell — and comparing
+characters cannot tell you that.** An unlit map cell is drawn as a space, and
+so is the gap between two words of a menu drawn on top of it, so a tile
+anchored to its character survives being covered and gets painted over the
+menu. The backend therefore splits the stream into printing and non-printing
+runs (`prints` on `StreamItem::Text`), which is enough for the frontend to know
+exactly which cells each write landed on: a printing run of *n* characters
+occupies the *n* cells ending at the cursor once the terminal has processed it.
+Any of those cells that is not a glyph's own character is retired
+(`src/lib/streamPlayer.ts`, `src/lib/tileGrid.ts`). The recorded character is
+kept as a backstop for anything that moves content around behind our back, such
+as a scroll or a resize.
+
+Two related details matter for the same reason:
+
+- **A glyph is anchored as soon as its character is on screen**, not at the end
+  of the frame. NetHack writes exactly one character between `AVTC_GLYPH_START`
+  and `AVTC_GLYPH_END`, so by the next glyph it is there. Reading it later
+  records whatever was drawn *over* the cell, which anchors the tile to the very
+  thing that should have retired it.
+- **The overlay reconciles at the end of every batch, not only on a frame
+  sync.** `AVTC_INLINE_SYNC` comes from `tty_nhgetch`, so it stops the moment
+  NetHack exits — and dgamelaunch's own menus contain no tile codes at all.
+  Waiting for one meant the last frame of the game stayed painted over the
+  launcher.
 
 ## Tilesets
 
@@ -141,6 +171,22 @@ hero is `ch="@"` at tile 93 and the sheet's 93 is a rock mole, the sheet is
 built for the wrong NetHack version. `NHTILES_RAW` dumps the raw server bytes
 for offline replay.
 
+## Display
+
+Tiles are drawn into terminal cells, so the cell *is* the tile — and a
+monospace cell is about half as wide as it is tall, which squashes a square
+16×16 tile. The **Display** panel in the game bar adjusts font, font size, cell
+width (letter spacing), cell height (line height) and whole-pixel tile drawing
+while the game is running, and writes the result to the server's profile. The
+terminal is re-measured in place rather than rebuilt, so nothing on screen is
+lost.
+
+"Whole-pixel tiles" draws each tile at 1×, 2× or 3× its native 16px art,
+centred in the cell, instead of stretching it. It needs a cell at least 16px in
+both directions, which is what the size and cell-width controls are for; below
+that it falls back to stretching, since a native-size tile would spill into the
+neighbouring column.
+
 ## Credentials
 
 The public servers do not authenticate players over SSH. Everyone connects as a
@@ -158,6 +204,26 @@ Auto-login answers the dgamelaunch menu, the username prompt and the password
 prompt, then stops. It deliberately does not pick a game from the post-login
 menu: those menus differ per server and version, and guessing wrong would start
 the wrong game.
+
+Two things about that menu are worth knowing, because both are invisible until
+you look at the bytes:
+
+- **It contains no newlines.** dgamelaunch places every entry with
+  `ESC[8;3Hl) Login ESC[9;3Hr) Register new user`, so with the escape codes
+  stripped the whole screen is one line. Matching `l)` at the start of a line
+  never fires against a real server.
+- **A rejected password says nothing.** nethack.alt.org simply redraws the
+  "Not logged in." menu. Watching for the words "login failed" would wait
+  forever, so the menu coming back *after* the password is submitted is what
+  counts as a rejection, and the account name appearing is the confirmation.
+
+The status bar distinguishes the two logins: the SSH connection is the shared
+account, and "Logged in to the game server as …" is yours.
+
+A first run with no config file at all starts with nethack.alt.org and
+hardfought.org already listed, each pointed at a tile sheet matching the
+NetHack line that server runs. Deleting every profile is a choice, not a first
+run, so they are not handed back.
 
 Host keys are trusted on first use and recorded in `~/.ssh/known_hosts`. A key
 that *changes* is a hard failure, not a prompt.

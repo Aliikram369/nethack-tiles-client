@@ -18,6 +18,13 @@ export interface OverlayTarget {
   /** Size of the overlay canvas, in CSS pixels. */
   widthPx: number;
   heightPx: number;
+  /**
+   * Draw each tile at a whole-number multiple of its native pixel size,
+   * centred in its cell, instead of stretching it to fill. Sharper, but it
+   * needs a cell at least as large as one tile -- which is what the cell
+   * width and height controls are for.
+   */
+  pixelPerfect?: boolean;
 }
 
 export interface OverlayTile {
@@ -66,16 +73,24 @@ export function paintOverlay(
     }
     report.drawn++;
 
+    // How many whole tiles fit in the cell; 0 means the cell is too small for
+    // even one, so stretching is the only option that stays inside the cell.
+    const whole = target.pixelPerfect
+      ? Math.floor(Math.min(cellWidth / src.width, cellHeight / src.height))
+      : 0;
+    const drawWidth = whole >= 1 ? src.width * whole : cellWidth;
+    const drawHeight = whole >= 1 ? src.height * whole : cellHeight;
+
     ctx.drawImage(
       target.sheet,
       src.x,
       src.y,
       src.width,
       src.height,
-      x,
-      y,
-      cellWidth,
-      cellHeight,
+      x + (cellWidth - drawWidth) / 2,
+      y + (cellHeight - drawHeight) / 2,
+      drawWidth,
+      drawHeight,
     );
 
     if (tile.flags.detected || tile.flags.invisible) {
