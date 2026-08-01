@@ -359,6 +359,28 @@ src-tauri/src/
   bin/tiles2png.rs       tile sheet generator
 ```
 
+## The icon
+
+Eight wall segments closing a room around the wizard, cut from the tile sheet
+the app already ships -- the vanilla 16x16 tiles began life in NetHack's Amiga
+port, so the icon is drawn from the same art the game is.
+
+```sh
+npm run icon    # regenerates app-icon.png, then all the platform sizes
+```
+
+It is generated rather than drawn (`src-tauri/src/icon.rs`) so it can be
+rebuilt when the tileset changes, and so what it is made of is written down.
+Two things the code is careful about:
+
+- **Whole-number zoom only.** These are 16-pixel sprites; any fractional scale
+  resamples them into mush.
+- **The room is five cells across, not three.** A three-cell room -- literally
+  eight wall tiles around one wizard tile -- puts the figure in a ninth of the
+  icon, which is eight pixels across on a 32px menu bar. Widening the room
+  magnifies the figure without stretching the walls, because the ring stays one
+  cell thick however big the room gets.
+
 ## Not in v1
 
 Watching other players, ttyrec recording, Hardfought variants (xNetHack,

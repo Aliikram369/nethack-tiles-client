@@ -3,6 +3,7 @@ pub mod autologin;
 pub mod debuglog;
 pub mod demux;
 pub mod glyph;
+pub mod icon;
 pub mod local;
 pub mod profiles;
 pub mod session;

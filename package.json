@@ -18,7 +18,8 @@
     "test:local-game": "cargo test --manifest-path src-tauri/Cargo.toml --lib the_installed_nethack_starts_and_draws -- --ignored --nocapture",
     "check": "tsc --noEmit && cargo check --manifest-path src-tauri/Cargo.toml --all-targets",
     "lint": "cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings",
-    "tiles": "cargo run --manifest-path src-tauri/Cargo.toml --bin tiles2png --"
+    "tiles": "cargo run --manifest-path src-tauri/Cargo.toml --bin tiles2png --",
+    "icon": "cargo run --manifest-path src-tauri/Cargo.toml --bin appicon -- --out app-icon.png --size 1024 && tauri icon app-icon.png"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
