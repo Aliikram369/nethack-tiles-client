@@ -9,7 +9,7 @@ import { paintOverlay } from "../lib/overlay";
 import type { Profile, TilesetPayload } from "../lib/protocol";
 import { StreamPlayer } from "../lib/streamPlayer";
 import { TileGrid } from "../lib/tileGrid";
-import { onStream, sshResize, sshWrite, sshWriteBytes } from "../lib/tauri";
+import { onStream, sessionResize, sessionWrite, sessionWriteBytes } from "../lib/tauri";
 
 /**
  * The NetHack colour scheme, kept close to a classic 16-colour terminal so
@@ -235,7 +235,7 @@ export function GameTerminal({
 
     const unlistenStream = onStream((items) => player.feed(items));
     const dataSub = term.onData((data) => {
-      void sshWrite(data);
+      void sessionWrite(data);
     });
 
     // Option chords go straight out as NetHack's meta bytes; xterm.js would
@@ -245,13 +245,13 @@ export function GameTerminal({
       const byte = metaByte(e);
       if (byte === null) return true;
       e.preventDefault();
-      void sshWriteBytes([byte]);
+      void sessionWriteBytes([byte]);
       return false;
     });
 
     const applyFit = () => {
       fit.fit();
-      void sshResize(term.cols, term.rows);
+      void sessionResize(term.cols, term.rows);
       // The cell geometry moved, so every tile's pixel rect is now wrong.
       grid.resolve(readCell);
       requestPaint();

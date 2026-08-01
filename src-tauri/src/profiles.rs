@@ -39,6 +39,17 @@ fn default_letter_spacing() -> f32 {
     0.0
 }
 
+/// How a profile reaches its game.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Transport {
+    /// A public server over SSH, via dgamelaunch.
+    #[default]
+    Ssh,
+    /// A NetHack installed on this machine, in a pseudo-terminal.
+    Local,
+}
+
 /// One saved server connection plus its display preferences.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -47,6 +58,15 @@ pub struct Profile {
     pub id: String,
     /// Display name in the picker.
     pub name: String,
+    /// Where the game runs. Defaults to SSH so profiles written before local
+    /// play existed still load.
+    #[serde(default)]
+    pub transport: Transport,
+    /// The local NetHack to run, for [`Transport::Local`]. Empty means "look
+    /// for one at connect time", so a profile does not go stale when NetHack
+    /// is upgraded or moved.
+    #[serde(default)]
+    pub command: String,
     pub host: String,
     #[serde(default = "default_port")]
     pub port: u16,
@@ -91,6 +111,8 @@ impl Profile {
         Profile {
             id: id.into(),
             name: name.into(),
+            transport: Transport::default(),
+            command: String::new(),
             host: String::new(),
             port: default_port(),
             ssh_user: String::new(),
@@ -108,12 +130,17 @@ impl Profile {
     }
 }
 
-/// The servers to offer someone who has never used the app before.
+/// The games to offer someone who has never used the app before.
+///
+/// `local` is the NetHack found on this machine, if any, with the release it
+/// reported; a local game is only offered when there is one to run. The public
+/// servers come first: their leaderboards are the point of the app, and a
+/// local game keeps no score anyone else can see.
 ///
 /// `tileset_id` is left empty deliberately: which sheet matches a NetHack
 /// version is the tileset registry's business, and the caller fills it in.
-pub fn default_profiles() -> Vec<Profile> {
-    vec![
+pub fn default_profiles(local: Option<(&Path, NetHackVersion)>) -> Vec<Profile> {
+    let mut profiles = vec![
         Profile {
             // NAO's play menu currently offers 5.0.0 and nothing else.
             host: "nethack.alt.org".into(),
@@ -127,7 +154,18 @@ pub fn default_profiles() -> Vec<Profile> {
             version: NetHackVersion::V36,
             ..Profile::new("hardfought-org", "Hardfought")
         },
-    ]
+    ];
+
+    if let Some((command, version)) = local {
+        profiles.push(Profile {
+            transport: Transport::Local,
+            command: command.display().to_string(),
+            version,
+            ..Profile::new("local-nethack", "This computer")
+        });
+    }
+
+    profiles
 }
 
 /// The on-disk document.
@@ -445,7 +483,7 @@ mod tests {
 
     #[test]
     fn the_default_profiles_are_the_two_public_servers() {
-        let hosts: Vec<_> = default_profiles()
+        let hosts: Vec<_> = default_profiles(None)
             .iter()
             .map(|p| p.host.clone())
             .collect();
@@ -454,7 +492,7 @@ mod tests {
 
     #[test]
     fn the_default_profiles_are_ready_to_connect_to() {
-        for p in default_profiles() {
+        for p in default_profiles(None) {
             assert!(!p.id.is_empty(), "{p:?}");
             assert!(!p.name.is_empty(), "{p:?}");
             assert_eq!(p.ssh_user, "nethack", "the shared dgamelaunch user");
@@ -463,6 +501,77 @@ mod tests {
             assert!(p.game_user.is_empty());
             assert!(!p.auto_login);
         }
+    }
+
+    #[test]
+    fn a_machine_with_nethack_installed_also_gets_a_local_profile() {
+        let local = Path::new("/opt/homebrew/bin/nethack");
+        let profiles = default_profiles(Some((local, NetHackVersion::V36)));
+
+        let p = profiles
+            .iter()
+            .find(|p| p.transport == Transport::Local)
+            .expect("a local game should be offered when one is installed");
+        assert_eq!(p.command, "/opt/homebrew/bin/nethack");
+        assert_eq!(p.version, NetHackVersion::V36);
+    }
+
+    #[test]
+    fn a_local_profile_needs_no_host_ssh_user_or_login() {
+        let local = Path::new("/usr/games/nethack");
+        let profiles = default_profiles(Some((local, NetHackVersion::V50)));
+        let p = profiles.iter().find(|p| p.transport == Transport::Local).unwrap();
+
+        assert!(p.host.is_empty(), "a local game is not on a host");
+        assert!(p.ssh_user.is_empty());
+        assert!(p.game_user.is_empty());
+        assert!(!p.auto_login, "there is no dgamelaunch prompt to answer");
+    }
+
+    #[test]
+    fn the_public_servers_come_before_the_local_game() {
+        // The point of the app is the public leaderboards; a local game is the
+        // fallback, so it should not be what Connect does by default.
+        let profiles = default_profiles(Some((Path::new("/usr/games/nethack"), NetHackVersion::V36)));
+        assert_eq!(profiles[0].transport, Transport::Ssh);
+        assert_eq!(profiles.last().unwrap().transport, Transport::Local);
+    }
+
+    #[test]
+    fn a_profile_saved_before_local_play_existed_still_loads_as_an_ssh_one() {
+        let f = fixture("transport-default");
+        std::fs::create_dir_all(f.path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &f.path,
+            r#"
+[[profiles]]
+id = "old"
+name = "Old"
+host = "nethack.alt.org"
+sshUser = "nethack"
+tilesetId = "vanilla-3.6.7-16"
+"#,
+        )
+        .unwrap();
+
+        let s = store(&f.path);
+        let p = s.get("old").expect("profile");
+        assert_eq!(p.transport, Transport::Ssh);
+        assert!(p.command.is_empty());
+    }
+
+    #[test]
+    fn a_local_profile_survives_a_reload() {
+        let f = fixture("local-roundtrip");
+        let mut s = store(&f.path);
+        let local = Profile {
+            transport: Transport::Local,
+            command: "/opt/homebrew/bin/nethack".into(),
+            ..Profile::new("local", "This Mac")
+        };
+        s.upsert(local.clone()).unwrap();
+
+        assert_eq!(store(&f.path).get("local"), Some(&local));
     }
 
     #[test]

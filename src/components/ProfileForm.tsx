@@ -37,6 +37,7 @@ export function ProfileForm({ profile, tilesets, onSave, onCancel, onDelete }: P
   const chosenTileset = tilesets.find((t) => t.id === draft.tilesetId);
   const versionMismatch =
     chosenTileset !== undefined && chosenTileset.version !== draft.version;
+  const isLocal = draft.transport === "local";
 
   return (
     <form
@@ -47,97 +48,143 @@ export function ProfileForm({ profile, tilesets, onSave, onCancel, onDelete }: P
       }}
     >
       <fieldset>
-        <legend>Server</legend>
+        <legend>{isLocal ? "This computer" : "Server"}</legend>
         <label>
           <span>Name</span>
           <input
             required
             value={draft.name}
             onChange={(e) => set("name", e.target.value)}
-            placeholder="nethack.alt.org"
+            placeholder={isLocal ? "This computer" : "nethack.alt.org"}
           />
         </label>
-        <div className="row">
-          <label className="grow">
-            <span>Host</span>
-            <input
-              required
-              value={draft.host}
-              onChange={(e) => set("host", e.target.value)}
-              placeholder="nethack.alt.org"
-            />
-          </label>
-          <label className="narrow">
-            <span>Port</span>
-            <input
-              type="number"
-              min={1}
-              max={65535}
-              value={draft.port}
-              onChange={(e) => set("port", Number(e.target.value))}
-            />
-          </label>
-        </div>
-        <div className="row">
-          <label className="grow">
-            <span>SSH user</span>
-            <input
-              required
-              value={draft.sshUser}
-              onChange={(e) => set("sshUser", e.target.value)}
-              placeholder="nethack"
-            />
-          </label>
-          <label className="grow">
-            <span>NetHack version</span>
-            <select
-              value={draft.version}
-              onChange={(e) => setVersion(e.target.value as Profile["version"])}
-            >
-              <option value="v36">3.6.x</option>
-              <option value="v50">5.0 / 3.7</option>
-            </select>
-          </label>
-        </div>
-        <p className="hint">
-          Everyone shares one SSH user on these servers. Your own account is the
-          game login below.
-        </p>
+        <label>
+          <span>Where the game runs</span>
+          <select
+            value={draft.transport}
+            onChange={(e) => set("transport", e.target.value as Profile["transport"])}
+          >
+            <option value="ssh">A public server, over SSH</option>
+            <option value="local">NetHack installed on this computer</option>
+          </select>
+        </label>
+
+        {isLocal ? (
+          <>
+            <div className="row">
+              <label className="grow">
+                <span>Command</span>
+                <input
+                  value={draft.command}
+                  onChange={(e) => set("command", e.target.value)}
+                  placeholder="Leave empty to find NetHack automatically"
+                  spellCheck={false}
+                />
+              </label>
+              <label className="grow">
+                <span>NetHack version</span>
+                <select
+                  value={draft.version}
+                  onChange={(e) => setVersion(e.target.value as Profile["version"])}
+                >
+                  <option value="v36">3.6.x</option>
+                  <option value="v50">5.0 / 3.7</option>
+                </select>
+              </label>
+            </div>
+            <p className="hint">
+              Tiles are a compile-time option in NetHack, and most packaged
+              builds are made without it. Such a build plays fine here, in
+              ASCII — it just never sends any tile data.
+            </p>
+          </>
+        ) : (
+          <>
+            <div className="row">
+              <label className="grow">
+                <span>Host</span>
+                <input
+                  required
+                  value={draft.host}
+                  onChange={(e) => set("host", e.target.value)}
+                  placeholder="nethack.alt.org"
+                />
+              </label>
+              <label className="narrow">
+                <span>Port</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={65535}
+                  value={draft.port}
+                  onChange={(e) => set("port", Number(e.target.value))}
+                />
+              </label>
+            </div>
+            <div className="row">
+              <label className="grow">
+                <span>SSH user</span>
+                <input
+                  required
+                  value={draft.sshUser}
+                  onChange={(e) => set("sshUser", e.target.value)}
+                  placeholder="nethack"
+                />
+              </label>
+              <label className="grow">
+                <span>NetHack version</span>
+                <select
+                  value={draft.version}
+                  onChange={(e) => setVersion(e.target.value as Profile["version"])}
+                >
+                  <option value="v36">3.6.x</option>
+                  <option value="v50">5.0 / 3.7</option>
+                </select>
+              </label>
+            </div>
+            <p className="hint">
+              Everyone shares one SSH user on these servers. Your own account is
+              the game login below.
+            </p>
+          </>
+        )}
       </fieldset>
 
-      <fieldset>
-        <legend>Game account</legend>
-        <label>
-          <span>Username</span>
-          <input
-            value={draft.gameUser}
-            onChange={(e) => set("gameUser", e.target.value)}
-            autoComplete="off"
-          />
-        </label>
-        <label>
-          <span>Password</span>
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoComplete="off"
-            placeholder={passwordSaved ? "Saved in your keychain" : "Not saved"}
-          />
-        </label>
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={draft.autoLogin}
-            onChange={(e) => set("autoLogin", e.target.checked)}
-          />
-          <span>Type my login at the server's prompt</span>
-        </label>
-        <p className="hint">
-          The password goes to your operating system's keychain, never to the
-          config file.
-        </p>
-      </fieldset>
+      {!isLocal && (
+        <fieldset>
+          <legend>Game account</legend>
+          <label>
+            <span>Username</span>
+            <input
+              value={draft.gameUser}
+              onChange={(e) => set("gameUser", e.target.value)}
+              autoComplete="off"
+            />
+          </label>
+          <label>
+            <span>Password</span>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="off"
+              placeholder={passwordSaved ? "Saved in your keychain" : "Not saved"}
+            />
+          </label>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={draft.autoLogin}
+              onChange={(e) => set("autoLogin", e.target.checked)}
+            />
+            <span>Type my login at the server's prompt</span>
+          </label>
+          <p className="hint">
+            The password goes to your operating system's keychain, never to the
+            config file.
+          </p>
+        </fieldset>
+      )}
 
       <fieldset>
         <legend>Display</legend>

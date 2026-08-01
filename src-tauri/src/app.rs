@@ -11,8 +11,10 @@ use crate::autologin::{AutoLogin, AutoLoginState};
 use crate::debuglog::{file_from_env, TileDebugLog};
 use crate::glyph::{GlyphFlags, NetHackVersion};
 use crate::demux::{Demuxer, StreamItem, TileEvent};
-use crate::profiles::{KeyringSecrets, Profile, ProfileStore};
-use crate::ssh::{self, SshConfig, SshEvent, SshSession};
+use crate::local::{self, LocalConfig};
+use crate::profiles::{KeyringSecrets, Profile, ProfileStore, Transport};
+use crate::session::{Session, SessionEvent};
+use crate::ssh::{self, SshConfig};
 use crate::tileset::{Tileset, TilesetManifest};
 
 /// The tilesets shipped with the app, one per supported NetHack line.
@@ -128,7 +130,7 @@ pub struct AppState {
     profiles: Mutex<ProfileStore>,
     /// Loaded tilesets by id; the bundled one is always present.
     tilesets: Mutex<HashMap<String, Tileset>>,
-    session: Mutex<Option<SshSession>>,
+    session: Mutex<Option<Session>>,
 }
 
 impl AppState {
@@ -148,9 +150,18 @@ impl AppState {
         }
 
         // Nobody's first run should start on an empty screen: offer the two
-        // public servers, already pointed at a matching tile sheet.
+        // public servers, already pointed at a matching tile sheet, plus this
+        // machine's own NetHack if it has one.
         if profiles.is_first_run() {
-            for mut profile in crate::profiles::default_profiles() {
+            let installed = local::find();
+            let local_game = installed.as_deref().map(|command| {
+                // Ask the binary rather than guess: tile indices are
+                // positional, so the wrong sheet draws the wrong picture for
+                // nearly every glyph.
+                let version = local::probe_version(command).unwrap_or_default();
+                (command, version)
+            });
+            for mut profile in crate::profiles::default_profiles(local_game) {
                 profile.tileset_id = sheet_for_version(&tilesets, profile.version);
                 if let Err(e) = profiles.upsert(profile) {
                     log::warn!("could not write the default profiles: {e}");
@@ -294,7 +305,7 @@ pub struct ConnectRequest {
 }
 
 #[tauri::command]
-pub async fn ssh_connect(
+pub async fn session_connect(
     app: AppHandle,
     state: State<'_, AppState>,
     request: ConnectRequest,
@@ -319,23 +330,34 @@ pub async fn ssh_connect(
         return Err("already connected -- disconnect first".into());
     }
 
-    let mut config = SshConfig::dgamelaunch(&profile.host, profile.port, &profile.ssh_user);
-    config.cols = request.cols;
-    config.rows = request.rows;
-
     let (tx, rx) = mpsc::unbounded_channel();
+    let local = profile.transport == Transport::Local;
+
     emit_status(
         &app,
-        StatusPayload::Connecting(format!("{}:{}", profile.host, profile.port)),
+        StatusPayload::Connecting(if local {
+            describe_local(&profile)
+        } else {
+            format!("{}:{}", profile.host, profile.port)
+        }),
     );
 
-    let session = ssh::connect(config, tx).await.map_err(|e| {
-        let message = e.to_string();
+    let session = if local {
+        start_local(&profile, request.cols, request.rows, tx)
+    } else {
+        let mut config = SshConfig::dgamelaunch(&profile.host, profile.port, &profile.ssh_user);
+        config.cols = request.cols;
+        config.rows = request.rows;
+        ssh::connect(config, tx).await.map_err(|e| e.to_string())
+    }
+    .map_err(|message| {
         emit_status(&app, StatusPayload::Error(message.clone()));
         message
     })?;
 
-    let autologin = match (profile.auto_login, password) {
+    // Only dgamelaunch has a login to answer; a local game is already "logged
+    // in" as whoever is sitting at the keyboard.
+    let autologin = match (!local && profile.auto_login, password) {
         (true, Some(password)) if !profile.game_user.is_empty() => {
             Some(AutoLogin::new(profile.game_user.clone(), password))
         }
@@ -352,7 +374,14 @@ pub async fn ssh_connect(
     };
 
     *state.session.lock().unwrap() = Some(session.clone());
-    emit_status(&app, StatusPayload::Connected(profile.host.clone()));
+    emit_status(
+        &app,
+        StatusPayload::Connected(if local {
+            describe_local(&profile)
+        } else {
+            profile.host.clone()
+        }),
+    );
 
     let tile_count = state
         .tilesets
@@ -377,11 +406,43 @@ pub async fn ssh_connect(
     Ok(())
 }
 
+/// Starts the NetHack installed on this machine.
+///
+/// An empty `command` means "whatever is installed now", resolved at connect
+/// time rather than stored, so the profile does not go stale when NetHack is
+/// upgraded, moved, or installed after the profile was written.
+fn start_local(
+    profile: &Profile,
+    cols: u32,
+    rows: u32,
+    events: mpsc::UnboundedSender<SessionEvent>,
+) -> Result<Session, String> {
+    let command = if profile.command.is_empty() {
+        local::find().ok_or_else(|| local::LocalError::NotFound.to_string())?
+    } else {
+        profile.command.clone().into()
+    };
+
+    let mut config = LocalConfig::new(command);
+    config.cols = cols as u16;
+    config.rows = rows as u16;
+    local::spawn(config, events).map_err(|e| e.to_string())
+}
+
+/// What to call a local game in the status bar.
+fn describe_local(profile: &Profile) -> String {
+    if profile.command.is_empty() {
+        "NetHack on this computer".into()
+    } else {
+        profile.command.clone()
+    }
+}
+
 /// Owns the demuxer and auto-login machine for one session's lifetime.
 async fn consume_session(
     app: AppHandle,
-    mut events: mpsc::UnboundedReceiver<SshEvent>,
-    session: SshSession,
+    mut events: mpsc::UnboundedReceiver<SessionEvent>,
+    session: Session,
     mut autologin: Option<AutoLogin>,
     version: NetHackVersion,
     tile_count: u32,
@@ -395,7 +456,7 @@ async fn consume_session(
 
     while let Some(event) = events.recv().await {
         match event {
-            SshEvent::Data(bytes) => {
+            SessionEvent::Data(bytes) => {
                 if let Some(raw) = raw.as_mut() {
                     use std::io::Write;
                     let _ = raw.write_all(&bytes);
@@ -444,8 +505,8 @@ async fn consume_session(
                     let _ = app.emit(events::TILEDATA_SEEN, ());
                 }
             }
-            SshEvent::Status(message) => emit_status(&app, StatusPayload::Info(message)),
-            SshEvent::Closed { reason } => {
+            SessionEvent::Status(message) => emit_status(&app, StatusPayload::Info(message)),
+            SessionEvent::Closed { reason } => {
                 if let Some(debug) = debug.as_mut() {
                     debug.summarize();
                 }
@@ -465,7 +526,7 @@ async fn consume_session(
 
 /// Sends keystrokes. `data` is a UTF-8 string from xterm.js `onData`.
 #[tauri::command]
-pub fn ssh_write(state: State<'_, AppState>, data: String) -> CmdResult<()> {
+pub fn session_write(state: State<'_, AppState>, data: String) -> CmdResult<()> {
     with_session(&state, |s| s.write(data.into_bytes()))
 }
 
@@ -475,17 +536,17 @@ pub fn ssh_write(state: State<'_, AppState>, data: String) -> CmdResult<()> {
 /// no UTF-8 string can carry: encoding U+00EC would put two bytes on the wire
 /// and the server would see garbage instead of `M-l`.
 #[tauri::command]
-pub fn ssh_write_bytes(state: State<'_, AppState>, bytes: Vec<u8>) -> CmdResult<()> {
+pub fn session_write_bytes(state: State<'_, AppState>, bytes: Vec<u8>) -> CmdResult<()> {
     with_session(&state, |s| s.write(bytes))
 }
 
 #[tauri::command]
-pub fn ssh_resize(state: State<'_, AppState>, cols: u32, rows: u32) -> CmdResult<()> {
+pub fn session_resize(state: State<'_, AppState>, cols: u32, rows: u32) -> CmdResult<()> {
     with_session(&state, |s| s.resize(cols, rows))
 }
 
 #[tauri::command]
-pub fn ssh_disconnect(state: State<'_, AppState>) -> CmdResult<()> {
+pub fn session_disconnect(state: State<'_, AppState>) -> CmdResult<()> {
     let session = state.session.lock().unwrap().take();
     match session {
         Some(s) => s.disconnect().map_err(|e| e.to_string()),
@@ -495,7 +556,7 @@ pub fn ssh_disconnect(state: State<'_, AppState>) -> CmdResult<()> {
 
 fn with_session<T>(
     state: &State<'_, AppState>,
-    f: impl FnOnce(&SshSession) -> Result<T, ssh::SshError>,
+    f: impl FnOnce(&Session) -> Result<T, crate::session::Disconnected>,
 ) -> CmdResult<T> {
     let guard = state.session.lock().unwrap();
     let session = guard.as_ref().ok_or("not connected")?;

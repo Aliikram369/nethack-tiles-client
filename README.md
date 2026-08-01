@@ -6,6 +6,9 @@ the `vt_tiledata` escape codes the servers already emit, and paints the vanilla
 16×16 tileset over the map. Games run on the server, so scores, dumplogs and
 ttyrecs are unaffected.
 
+It will also run a NetHack installed on this machine, in a pseudo-terminal —
+see [Playing locally](#playing-locally).
+
 Tauri 2 (OS webview, no bundled browser) + React/TypeScript frontend, Rust
 backend.
 
@@ -29,6 +32,37 @@ backend.
   Note NAO uses a separate rc file per NetHack version (`.nethackrc` for 3.6.x,
   `.nh500rc` for 5.0), so make sure you are editing the one for the version you
   actually play.
+
+## Playing locally
+
+A profile can point at a NetHack on this machine instead of a server. It runs
+in a pseudo-terminal, because NetHack's tty interface needs a real one: it asks
+for the window size with `TIOCGWINSZ`, puts the line discipline in raw mode,
+and will not start without a controlling terminal. Everything above the
+transport — the demultiplexer, the overlay, the display controls — is the same
+either way (`src-tauri/src/session.rs`).
+
+On a first run the app looks for one and offers it as a third profile, after
+the two public servers. The search covers `PATH` plus the usual install
+locations, because a GUI app on macOS is not started from a login shell and
+typically inherits only `/usr/bin:/bin:/usr/sbin:/sbin` — Homebrew's `nethack`
+would never be on it. The binary is asked its version with `--version` rather
+than guessed at, since tile indices are positional and the wrong sheet draws
+the wrong picture for nearly every glyph. Leaving a profile's command empty
+means "find one at connect time", so it does not go stale when NetHack moves.
+
+**Tiles usually will not work locally.** `TTY_TILES_ESCCODES` is a
+*compile-time* option and most packaged builds leave it out — Homebrew's does,
+which you can check with `strings $(which nethack) | grep '%d;%d'` turning up
+nothing. Such a build plays perfectly well here, in ASCII; it simply never
+sends a tile code, and the app says so. Tiles locally need NetHack built from
+source with that option.
+
+Disconnecting a local game sends `SIGHUP`, which is what NetHack handles by
+saving — the same thing that happens when an SSH connection drops. Killing it
+outright would lose the character and strand a lock file.
+
+Local play is Unix-only for now; Windows needs a ConPTY implementation.
 
 ## Running
 

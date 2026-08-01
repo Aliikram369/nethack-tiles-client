@@ -17,7 +17,8 @@
 use std::time::Duration;
 
 use nethack_tiles_lib::autologin::{AutoLogin, AutoLoginState};
-use nethack_tiles_lib::ssh::{self, SshConfig, SshEvent};
+use nethack_tiles_lib::session::SessionEvent;
+use nethack_tiles_lib::ssh::{self, SshConfig};
 use tokio::sync::mpsc;
 
 /// Runs the login and reports where it got to.
@@ -34,14 +35,14 @@ async fn run_login(user: &str, password: &str, host: &str) -> AutoLoginState {
             _ => break,
         };
         match event {
-            SshEvent::Data(bytes) => {
+            SessionEvent::Data(bytes) => {
                 let text: String = bytes.iter().map(|&b| b as char).collect();
                 if let Some(reply) = login.observe(&text) {
                     session.write(reply).expect("write");
                 }
             }
-            SshEvent::Status(message) => eprintln!("[status] {message}"),
-            SshEvent::Closed { reason } => {
+            SessionEvent::Status(message) => eprintln!("[status] {message}"),
+            SessionEvent::Closed { reason } => {
                 eprintln!("[closed] {reason:?}");
                 break;
             }

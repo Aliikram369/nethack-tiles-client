@@ -58,9 +58,15 @@ export interface TilesetPayload {
   dataUrl: string;
 }
 
+/** Where a profile's game runs. */
+export type Transport = "ssh" | "local";
+
 export interface Profile {
   id: string;
   name: string;
+  transport: Transport;
+  /** The local NetHack to run; empty means "find one at connect time". */
+  command: string;
   host: string;
   port: number;
   sshUser: string;

@@ -20,8 +20,8 @@ import {
   onStatus,
   onTiledataSeen,
   saveProfile,
-  sshConnect,
-  sshDisconnect,
+  sessionConnect,
+  sessionDisconnect,
 } from "./lib/tauri";
 
 /** How long to wait for tile codes before suggesting the .nethackrc fix. */
@@ -37,6 +37,8 @@ function newProfile(tilesetId: string): Profile {
   return {
     id: `profile-${Date.now().toString(36)}`,
     name: "",
+    transport: "ssh",
+    command: "",
     host: "",
     port: 22,
     sshUser: "nethack",
@@ -134,7 +136,7 @@ export default function App() {
   const connect = async (profile: Profile) => {
     setError(null);
     try {
-      await sshConnect(profile.id, 80, 24);
+      await sessionConnect(profile.id, 80, 24);
       setConnected(profile);
       setSheetMismatch(null);
       if (graceTimer.current) window.clearTimeout(graceTimer.current);
@@ -150,7 +152,7 @@ export default function App() {
   const disconnect = async () => {
     // A tweak made a moment before quitting is still worth keeping.
     await flushDisplay();
-    await sshDisconnect().catch(() => {});
+    await sessionDisconnect().catch(() => {});
     setConnected(null);
     setShowDisplay(false);
     setTiledataHint(false);
@@ -233,11 +235,24 @@ export default function App() {
         {tiledataHint && (
           <p className="banner">
             <span className="banner__text">
-              No tiles yet. Your <code>.nethackrc</code> on the server needs{" "}
-              <code>OPTIONS=vt_tiledata</code> <em>and</em>{" "}
-              <code>OPTIONS=windowtype:tty</code> — tile data comes from the tty
-              interface, so <code>windowtype:curses</code> never sends any. Fix
-              it, then start a new game.
+              {connected.transport === "local" ? (
+                <>
+                  No tiles yet. Your <code>~/.nethackrc</code> needs{" "}
+                  <code>OPTIONS=vt_tiledata</code> <em>and</em>{" "}
+                  <code>OPTIONS=windowtype:tty</code>. If that changes nothing,
+                  this NetHack was built without <code>TTY_TILES_ESCCODES</code>
+                  , which is a compile-time option most packaged builds leave
+                  out — the game plays fine, just in ASCII.
+                </>
+              ) : (
+                <>
+                  No tiles yet. Your <code>.nethackrc</code> on the server needs{" "}
+                  <code>OPTIONS=vt_tiledata</code> <em>and</em>{" "}
+                  <code>OPTIONS=windowtype:tty</code> — tile data comes from the
+                  tty interface, so <code>windowtype:curses</code> never sends
+                  any. Fix it, then start a new game.
+                </>
+              )}
             </span>
           </p>
         )}
@@ -318,7 +333,7 @@ export default function App() {
       ) : (
         <main className="servers">
           <div className="servers__head">
-            <h2>Servers</h2>
+            <h2>Games</h2>
             <button
               onClick={() =>
                 setScreen({
@@ -328,14 +343,15 @@ export default function App() {
                 })
               }
             >
-              Add server
+              Add game
             </button>
           </div>
 
           {profiles.length === 0 ? (
             <p className="empty">
-              No servers yet. Add <strong>nethack.alt.org</strong> or{" "}
-              <strong>hardfought.org</strong> to get started.
+              Nothing here yet. Add <strong>nethack.alt.org</strong> or{" "}
+              <strong>hardfought.org</strong>, or point a profile at a NetHack
+              installed on this computer.
             </p>
           ) : (
             <ul className="server-list">
@@ -353,10 +369,15 @@ export default function App() {
                       }
                       size={20}
                     />
-                    <span className="server__name">{profile.name || profile.host}</span>
+                    <span className="server__name">
+                      {profile.name || profile.host || "This computer"}
+                    </span>
                     <span className="server__where">
-                      {profile.sshUser}@{profile.host}
-                      {profile.port !== 22 ? `:${profile.port}` : ""}
+                      {profile.transport === "local"
+                        ? profile.command || "NetHack on this computer"
+                        : `${profile.sshUser}@${profile.host}${
+                            profile.port !== 22 ? `:${profile.port}` : ""
+                          }`}
                     </span>
                     <span className="server__tag">
                       {profile.version === "v36" ? "3.6" : "5.0"}

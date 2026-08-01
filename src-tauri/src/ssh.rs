@@ -22,6 +22,8 @@ use russh::keys::ssh_key;
 use russh::{ChannelMsg, Disconnect};
 use tokio::sync::mpsc;
 
+use crate::session::{Command, Session, SessionEvent};
+
 /// How to prove who we are to the SSH server.
 #[derive(Debug, Clone)]
 pub enum SshAuth {
@@ -87,17 +89,6 @@ impl SshConfig {
     }
 }
 
-/// Something that happened on the session, delivered to the UI.
-#[derive(Debug, Clone)]
-pub enum SshEvent {
-    /// Raw bytes from the server, to be demultiplexed.
-    Data(Vec<u8>),
-    /// Human-readable progress or warning for the status bar.
-    Status(String),
-    /// The session ended. `reason` is `None` for a clean exit.
-    Closed { reason: Option<String> },
-}
-
 #[derive(Debug, thiserror::Error)]
 pub enum SshError {
     #[error("could not reach {host}:{port}: {source}")]
@@ -130,8 +121,6 @@ pub enum SshError {
     KeyLoad { path: PathBuf, message: String },
     #[error("ssh error: {0}")]
     Protocol(#[from] russh::Error),
-    #[error("the session is no longer connected")]
-    Disconnected,
 }
 
 /// Why `check_server_key` rejected a key, recorded so `connect` can report
@@ -151,7 +140,7 @@ struct ClientHandler {
     port: u16,
     policy: HostKeyPolicy,
     rejection: Arc<Mutex<Option<HostKeyRejection>>>,
-    events: mpsc::UnboundedSender<SshEvent>,
+    events: mpsc::UnboundedSender<SessionEvent>,
 }
 
 impl client::Handler for ClientHandler {
@@ -176,7 +165,7 @@ impl client::Handler for ClientHandler {
                 ) {
                     log::warn!("could not record host key in known_hosts: {e}");
                 }
-                let _ = self.events.send(SshEvent::Status(format!(
+                let _ = self.events.send(SessionEvent::Status(format!(
                     "Trusting new host key for {}:{} ({fingerprint})",
                     self.host, self.port
                 )));
@@ -200,53 +189,12 @@ impl client::Handler for ClientHandler {
     }
 }
 
-/// Instructions for the session task.
-#[derive(Debug)]
-enum Command {
-    Data(Vec<u8>),
-    Resize { cols: u32, rows: u32 },
-    Disconnect,
-}
-
-/// A live session. Dropping this does not close the session; call
-/// [`SshSession::disconnect`].
-#[derive(Debug, Clone)]
-pub struct SshSession {
-    commands: mpsc::UnboundedSender<Command>,
-}
-
-impl SshSession {
-    /// Sends keystrokes to the server.
-    pub fn write(&self, bytes: Vec<u8>) -> Result<(), SshError> {
-        self.commands
-            .send(Command::Data(bytes))
-            .map_err(|_| SshError::Disconnected)
-    }
-
-    /// Tells the server the terminal was resized.
-    pub fn resize(&self, cols: u32, rows: u32) -> Result<(), SshError> {
-        self.commands
-            .send(Command::Resize { cols, rows })
-            .map_err(|_| SshError::Disconnected)
-    }
-
-    pub fn disconnect(&self) -> Result<(), SshError> {
-        self.commands
-            .send(Command::Disconnect)
-            .map_err(|_| SshError::Disconnected)
-    }
-
-    pub fn is_connected(&self) -> bool {
-        !self.commands.is_closed()
-    }
-}
-
 /// Connects, authenticates, opens an interactive shell, and starts pumping
 /// bytes into `events`.
 pub async fn connect(
     config: SshConfig,
-    events: mpsc::UnboundedSender<SshEvent>,
-) -> Result<SshSession, SshError> {
+    events: mpsc::UnboundedSender<SessionEvent>,
+) -> Result<Session, SshError> {
     let rejection = Arc::new(Mutex::new(None));
     let handler = ClientHandler {
         host: config.host.clone(),
@@ -263,7 +211,7 @@ pub async fn connect(
         ..Default::default()
     });
 
-    let _ = events.send(SshEvent::Status(format!(
+    let _ = events.send(SessionEvent::Status(format!(
         "Connecting to {}:{}...",
         config.host, config.port
     )));
@@ -307,7 +255,7 @@ pub async fn connect(
     authenticate(&mut handle, &config).await?;
     // Deliberately explicit: this is the *shared* SSH account, and saying
     // "Authenticated" here reads as though the player's game account is in.
-    let _ = events.send(SshEvent::Status(format!(
+    let _ = events.send(SessionEvent::Status(format!(
         "SSH connected as {} -- game login next",
         config.user
     )));
@@ -328,7 +276,7 @@ pub async fn connect(
 
     let (tx, rx) = mpsc::unbounded_channel();
     tokio::spawn(pump(handle, channel, rx, events));
-    Ok(SshSession { commands: tx })
+    Ok(Session::new(tx))
 }
 
 /// Tries each configured method until one succeeds.
@@ -408,7 +356,7 @@ async fn pump(
     handle: Handle<ClientHandler>,
     mut channel: russh::Channel<client::Msg>,
     mut commands: mpsc::UnboundedReceiver<Command>,
-    events: mpsc::UnboundedSender<SshEvent>,
+    events: mpsc::UnboundedSender<SessionEvent>,
 ) {
     let mut reason = None;
     loop {
@@ -429,12 +377,12 @@ async fn pump(
             },
             message = channel.wait() => match message {
                 Some(ChannelMsg::Data { data }) => {
-                    if events.send(SshEvent::Data(data.to_vec())).is_err() {
+                    if events.send(SessionEvent::Data(data.to_vec())).is_err() {
                         break; // the UI went away
                     }
                 }
                 Some(ChannelMsg::ExtendedData { data, .. }) => {
-                    if events.send(SshEvent::Data(data.to_vec())).is_err() {
+                    if events.send(SessionEvent::Data(data.to_vec())).is_err() {
                         break;
                     }
                 }
@@ -450,7 +398,7 @@ async fn pump(
     let _ = handle
         .disconnect(Disconnect::ByApplication, "", "en")
         .await;
-    let _ = events.send(SshEvent::Closed { reason });
+    let _ = events.send(SessionEvent::Closed { reason });
 }
 
 #[cfg(test)]
@@ -494,18 +442,5 @@ mod tests {
         let rendered = uncheckable.to_string();
         assert!(rendered.contains("could not check"), "{rendered}");
         assert!(rendered.contains("Permission denied"), "{rendered}");
-    }
-
-    #[test]
-    fn a_session_whose_task_has_gone_reports_disconnected() {
-        let (tx, rx) = mpsc::unbounded_channel();
-        let session = SshSession { commands: tx };
-        assert!(session.is_connected());
-        drop(rx);
-        assert!(!session.is_connected());
-        assert!(matches!(
-            session.write(b"x".to_vec()),
-            Err(SshError::Disconnected)
-        ));
     }
 }

@@ -32,16 +32,16 @@ export const getTileset = (id: string) => invoke<TilesetPayload>("get_tileset", 
 export const addCustomTileset = (manifest: TilesetManifest, path: string) =>
   invoke<TilesetPayload>("add_custom_tileset", { manifest, path });
 
-export const sshConnect = (profileId: string, cols: number, rows: number) =>
-  invoke<void>("ssh_connect", { request: { profileId, cols, rows } });
+export const sessionConnect = (profileId: string, cols: number, rows: number) =>
+  invoke<void>("session_connect", { request: { profileId, cols, rows } });
 
-export const sshWrite = (data: string) => invoke<void>("ssh_write", { data });
+export const sessionWrite = (data: string) => invoke<void>("session_write", { data });
 /** For bytes no UTF-8 string can carry, such as NetHack's meta commands. */
-export const sshWriteBytes = (bytes: number[]) =>
-  invoke<void>("ssh_write_bytes", { bytes });
-export const sshResize = (cols: number, rows: number) =>
-  invoke<void>("ssh_resize", { cols, rows });
-export const sshDisconnect = () => invoke<void>("ssh_disconnect");
+export const sessionWriteBytes = (bytes: number[]) =>
+  invoke<void>("session_write_bytes", { bytes });
+export const sessionResize = (cols: number, rows: number) =>
+  invoke<void>("session_resize", { cols, rows });
+export const sessionDisconnect = () => invoke<void>("session_disconnect");
 
 /** Sends a frontend failure to the backend log, where it is actually visible. */
 export const reportFrontendError = (message: string) =>

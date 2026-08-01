@@ -3,7 +3,9 @@ pub mod autologin;
 pub mod debuglog;
 pub mod demux;
 pub mod glyph;
+pub mod local;
 pub mod profiles;
+pub mod session;
 pub mod ssh;
 pub mod tileset;
 pub mod tilesrc;
@@ -28,11 +30,11 @@ pub fn run() {
             app::list_tilesets,
             app::get_tileset,
             app::add_custom_tileset,
-            app::ssh_connect,
-            app::ssh_write,
-            app::ssh_write_bytes,
-            app::ssh_resize,
-            app::ssh_disconnect,
+            app::session_connect,
+            app::session_write,
+            app::session_write_bytes,
+            app::session_resize,
+            app::session_disconnect,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
