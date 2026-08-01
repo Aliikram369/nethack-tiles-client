@@ -102,7 +102,7 @@ pub fn find_in(dirs: &[PathBuf], runnable: impl Fn(&Path) -> bool) -> Option<Pat
 /// Looks for a local NetHack on this machine.
 pub fn find() -> Option<PathBuf> {
     let path = std::env::var("PATH").ok();
-    find_in(&search_dirs(path.as_deref()), |p| is_runnable(p))
+    find_in(&search_dirs(path.as_deref()), is_runnable)
 }
 
 #[cfg(unix)]

@@ -67,16 +67,22 @@ Local play is Unix-only for now; Windows needs a ConPTY implementation.
 ## Running
 
 ```sh
-npm install
-npm run tauri dev      # development
-npm run tauri build    # packaged app
+make install    # npm install
+make dev        # run with hot reload
+make build      # packaged app, in src-tauri/target/release/bundle
 ```
+
+`make` on its own lists every target. They are thin wrappers over npm and
+cargo -- `make dev` is `npm run tauri dev` -- so nothing is hidden behind them.
 
 ## Tests
 
 ```sh
-npm test                                         # frontend (vitest)
-cargo test --manifest-path src-tauri/Cargo.toml  # backend
+make test           # both suites
+make test-frontend  # vitest
+make test-backend   # cargo
+make check          # tsc --noEmit and cargo check
+make lint           # clippy, warnings as errors
 ```
 
 The parts with real logic are pure and unit tested: the escape-code demuxer,
@@ -89,9 +95,11 @@ The SSH transport only meets the login machine over a network, so that pairing
 has its own smoke test, ignored by default:
 
 ```sh
-NHTILES_TEST_USER=someaccount NHTILES_TEST_PASS=secret \
-  cargo test --manifest-path src-tauri/Cargo.toml --test live_login -- --ignored
+NHTILES_TEST_USER=someaccount NHTILES_TEST_PASS=secret make live-login
 ```
+
+Local play has the same arrangement -- `make local-game` starts whatever
+NetHack is installed here and checks it draws.
 
 ## How tiles work
 

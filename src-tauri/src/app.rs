@@ -350,10 +350,7 @@ pub async fn session_connect(
         config.rows = request.rows;
         ssh::connect(config, tx).await.map_err(|e| e.to_string())
     }
-    .map_err(|message| {
-        emit_status(&app, StatusPayload::Error(message.clone()));
-        message
-    })?;
+    .inspect_err(|message| emit_status(&app, StatusPayload::Error(message.clone())))?;
 
     // Only dgamelaunch has a login to answer; a local game is already "logged
     // in" as whoever is sitting at the keyboard.

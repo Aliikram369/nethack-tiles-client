@@ -581,7 +581,7 @@ mod tests {
     #[test]
     fn an_unterminated_operating_system_command_does_not_swallow_the_session() {
         let mut input = b"\x1b]0;".to_vec();
-        input.extend(std::iter::repeat(b'a').take(MAX_OSC_LEN + 20));
+        input.extend(std::iter::repeat_n(b'a', MAX_OSC_LEN + 20));
         let items = demux(&input);
         let printed: usize = items
             .iter()
@@ -604,7 +604,7 @@ mod tests {
     #[test]
     fn runaway_csi_is_flushed_as_text_rather_than_buffered_forever() {
         let mut input = b"\x1b[".to_vec();
-        input.extend(std::iter::repeat(b'1').take(MAX_CSI_LEN + 10));
+        input.extend(std::iter::repeat_n(b'1', MAX_CSI_LEN + 10));
         let items = demux(&input);
         let total: usize = items
             .iter()
