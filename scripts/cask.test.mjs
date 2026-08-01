@@ -61,7 +61,7 @@ describe("renderCask", () => {
   });
 
   test("removes the profiles and keychain-adjacent state on zap", () => {
-    expect(cask).toContain("~/Library/Application Support/com.ian.nethack-tiles");
+    expect(cask).toContain("~/Library/Application Support/io.statico.nethack-tiles");
   });
 
   test("is a cask Ruby can parse as one block", () => {

@@ -12,7 +12,7 @@ use crate::debuglog::{file_from_env, TileDebugLog};
 use crate::glyph::{GlyphFlags, NetHackVersion};
 use crate::demux::{Demuxer, StreamItem, TileEvent};
 use crate::local::{self, LocalConfig};
-use crate::profiles::{KeyringSecrets, Profile, ProfileStore, Transport};
+use crate::profiles::{KeyringSecrets, Profile, ProfileStore, Transport, WithLegacy};
 use crate::session::{Session, SessionEvent};
 use crate::ssh::{self, SshConfig};
 use crate::tileset::{Tileset, TilesetManifest};
@@ -136,8 +136,20 @@ pub struct AppState {
 impl AppState {
     pub fn new() -> Result<Self, String> {
         let path = ProfileStore::default_path().map_err(|e| e.to_string())?;
+        // The bundle identifier changed, which moved both the config directory
+        // and the keychain service. Neither is worth making anyone set their
+        // servers up again over.
+        if let Ok(legacy) = ProfileStore::legacy_path() {
+            if let Err(e) = ProfileStore::adopt_legacy(&path, &legacy) {
+                log::warn!("could not adopt the profiles from the previous version: {e}");
+            }
+        }
+        let secrets = WithLegacy::new(
+            Box::new(KeyringSecrets::default()),
+            Box::new(KeyringSecrets::legacy()),
+        );
         let mut profiles =
-            ProfileStore::load(path, Box::new(KeyringSecrets)).map_err(|e| e.to_string())?;
+            ProfileStore::load(path, Box::new(secrets)).map_err(|e| e.to_string())?;
 
         let mut tilesets = HashMap::new();
         for (manifest_json, png) in BUNDLED_TILESETS {

@@ -10,7 +10,7 @@ const REPO = "https://github.com/statico/nethack-tiles-client";
 const APP = "NetHack Tiles Client.app";
 
 /** Matches how ProjectDirs and the bundle identifier name our state. */
-const IDENTIFIER = "com.ian.nethack-tiles";
+const IDENTIFIER = "io.statico.nethack-tiles";
 
 /**
  * Picks the macOS build out of a release's assets.

@@ -403,7 +403,12 @@ run, so they are not handed back.
 Host keys are trusted on first use and recorded in `~/.ssh/known_hosts`. A key
 that *changes* is a hard failure, not a prompt.
 
-Profiles live in `profiles.toml` under the OS config directory.
+Profiles live in `profiles.toml` under the OS config directory, in a folder
+named for the bundle identifier (`io.statico.nethack-tiles`), which also names
+the keychain entries. That identifier changed once, from `com.ian.…`; profiles
+saved under the old one are copied forward on first launch, and a password
+found only under the old keychain service is read through and re-filed under
+the new one. The old copies are left in place rather than deleted.
 
 ## Layout
 

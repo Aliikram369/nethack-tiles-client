@@ -248,7 +248,7 @@ mod tests {
     use super::*;
 
     fn login() -> AutoLogin {
-        AutoLogin::new("ian", "hunter2")
+        AutoLogin::new("username", "hunter2")
     }
 
     const MENU: &str = "\
@@ -271,7 +271,7 @@ info\x1b[13;3Hm) MOTD/news (updated: 2026.07.19)\x1b[15;3Hq) Quit\x1b[19;3H=> ";
     /// The screen NAO draws once the password is accepted.
     const NAO_LOGGED_IN: &str = "\x1b[H\x1b[2J\x1b[2d ## \x1b(B\x1b[0;1m\x1b[33mnethack.alt.org \
 - http://nethack.alt.org/\x1b[3;2H\x1b[39m\x1b(B\x1b[m##\x1b[4d\x08\x08##\x1b[6d\x08Logged in \
-as: \x1b(B\x1b[0;1mstaticoalt\x1b[8;3H\x1b(B\x1b[mc) Change password\x1b[9;3He) Change email \
+as: \x1b(B\x1b[0;1musername\x1b[8;3H\x1b(B\x1b[mc) Change password\x1b[9;3He) Change email \
 address\x1b[10;3Hw) Watch games in progress\x1b[13;3Hp) Play NetHack 5.0.0\x1b[22;3H=> ";
 
     #[test]
@@ -315,7 +315,7 @@ address\x1b[10;3Hw) Watch games in progress\x1b[13;3Hp) Play NetHack 5.0.0\x1b[2
         a.observe(MENU);
         assert_eq!(
             a.observe("Please enter your username.\r\n => "),
-            Some(b"ian\n".to_vec())
+            Some(b"username\n".to_vec())
         );
         assert_eq!(a.state(), &AutoLoginState::AwaitingPassword);
     }
@@ -338,7 +338,7 @@ address\x1b[10;3Hw) Watch games in progress\x1b[13;3Hp) Play NetHack 5.0.0\x1b[2
         let mut a = login();
         a.observe(MENU);
         assert_eq!(a.observe("Please enter your user"), None);
-        assert_eq!(a.observe("name.\r\n => "), Some(b"ian\n".to_vec()));
+        assert_eq!(a.observe("name.\r\n => "), Some(b"username\n".to_vec()));
     }
 
     #[test]
@@ -375,7 +375,7 @@ address\x1b[10;3Hw) Watch games in progress\x1b[13;3Hp) Play NetHack 5.0.0\x1b[2
             NAO_MENU,
             "\x1b[H\x1b[2J\x1b[2d ## nethack.alt.org\r\x1b[6d Please enter your username. \
              (blank entry aborts)\r\x1b[8d => ",
-            "staticoalt\x1b[H\x1b[2J\x1b[2d ## nethack.alt.org\r\x1b[6d Please enter your \
+            "username\x1b[H\x1b[2J\x1b[2d ## nethack.alt.org\r\x1b[6d Please enter your \
              password.\r\x1b[8d => ",
             NAO_LOGGED_IN,
         ] {
@@ -383,7 +383,7 @@ address\x1b[10;3Hw) Watch games in progress\x1b[13;3Hp) Play NetHack 5.0.0\x1b[2
                 sent.push(String::from_utf8(bytes).unwrap());
             }
         }
-        assert_eq!(sent, ["l", "ian\n", "hunter2\n"]);
+        assert_eq!(sent, ["l", "username\n", "hunter2\n"]);
         assert_eq!(a.state(), &AutoLoginState::LoggedIn);
     }
 
@@ -467,7 +467,7 @@ address\x1b[10;3Hw) Watch games in progress\x1b[13;3Hp) Play NetHack 5.0.0\x1b[2
                 sent.push(String::from_utf8(bytes).unwrap());
             }
         }
-        assert_eq!(sent, ["l", "ian\n", "hunter2\n"]);
+        assert_eq!(sent, ["l", "username\n", "hunter2\n"]);
         assert_eq!(a.state(), &AutoLoginState::LoggedIn);
     }
 

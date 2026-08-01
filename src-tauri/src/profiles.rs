@@ -11,18 +11,19 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
 use crate::glyph::NetHackVersion;
 
-/// Service name under which passwords are filed in the OS keychain.
-///
-/// This stays `nethack-tiles` even though the app is now called NetHack Tiles
-/// Client: renaming it would orphan every password already in the keychain,
-/// and nothing shows it to the player.
-const KEYCHAIN_SERVICE: &str = "com.ian.nethack-tiles";
+/// Service name under which passwords are filed in the OS keychain. Matches
+/// the bundle identifier, which is how the keychain is usually read.
+const KEYCHAIN_SERVICE: &str = "io.statico.nethack-tiles";
+
+/// What the identifier used to be. Passwords filed under it are read through
+/// to and copied forward; see [`WithLegacy`].
+const LEGACY_KEYCHAIN_SERVICE: &str = "com.ian.nethack-tiles";
 
 fn default_port() -> u16 {
     22
@@ -233,25 +234,42 @@ pub trait SecretStore: std::fmt::Debug + Send + Sync {
 }
 
 /// The real OS keychain (Keychain / Credential Manager / Secret Service).
-#[derive(Debug, Default)]
-pub struct KeyringSecrets;
+#[derive(Debug)]
+pub struct KeyringSecrets {
+    service: &'static str,
+}
+
+impl Default for KeyringSecrets {
+    fn default() -> Self {
+        Self {
+            service: KEYCHAIN_SERVICE,
+        }
+    }
+}
 
 impl KeyringSecrets {
-    fn entry(profile_id: &str) -> Result<keyring::Entry, ProfileError> {
-        keyring::Entry::new(KEYCHAIN_SERVICE, profile_id)
+    /// The store the previous bundle identifier wrote to.
+    pub fn legacy() -> Self {
+        Self {
+            service: LEGACY_KEYCHAIN_SERVICE,
+        }
+    }
+
+    fn entry(&self, profile_id: &str) -> Result<keyring::Entry, ProfileError> {
+        keyring::Entry::new(self.service, profile_id)
             .map_err(|e| ProfileError::Secret(e.to_string()))
     }
 }
 
 impl SecretStore for KeyringSecrets {
     fn set_password(&self, profile_id: &str, password: &str) -> Result<(), ProfileError> {
-        Self::entry(profile_id)?
+        self.entry(profile_id)?
             .set_password(password)
             .map_err(|e| ProfileError::Secret(e.to_string()))
     }
 
     fn get_password(&self, profile_id: &str) -> Result<Option<String>, ProfileError> {
-        match Self::entry(profile_id)?.get_password() {
+        match self.entry(profile_id)?.get_password() {
             Ok(p) => Ok(Some(p)),
             Err(keyring::Error::NoEntry) => Ok(None),
             Err(e) => Err(ProfileError::Secret(e.to_string())),
@@ -259,17 +277,71 @@ impl SecretStore for KeyringSecrets {
     }
 
     fn delete_password(&self, profile_id: &str) -> Result<(), ProfileError> {
-        match Self::entry(profile_id)?.delete_credential() {
+        match self.entry(profile_id)?.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
             Err(e) => Err(ProfileError::Secret(e.to_string())),
         }
     }
 }
 
+/// A secret store that can still see what an earlier version of the app saved.
+///
+/// The bundle identifier moved from `com.ian` to `io.statico`, and the
+/// keychain files passwords under it. Rather than make anyone type their
+/// server passwords again, a lookup that misses falls through to the old
+/// service and copies what it finds forward.
+#[derive(Debug)]
+pub struct WithLegacy {
+    primary: Box<dyn SecretStore>,
+    legacy: Box<dyn SecretStore>,
+}
+
+impl WithLegacy {
+    pub fn new(primary: Box<dyn SecretStore>, legacy: Box<dyn SecretStore>) -> Self {
+        Self { primary, legacy }
+    }
+}
+
+impl SecretStore for WithLegacy {
+    fn set_password(&self, profile_id: &str, password: &str) -> Result<(), ProfileError> {
+        self.primary.set_password(profile_id, password)
+    }
+
+    fn get_password(&self, profile_id: &str) -> Result<Option<String>, ProfileError> {
+        if let Some(password) = self.primary.get_password(profile_id)? {
+            return Ok(Some(password));
+        }
+        let Some(password) = self.legacy.get_password(profile_id)? else {
+            return Ok(None);
+        };
+        // Best effort: a keychain that will not take the write still leaves
+        // the player logged in this time, which beats refusing to connect.
+        if let Err(e) = self.primary.set_password(profile_id, &password) {
+            log::warn!("could not copy {profile_id}'s password to the current keychain entry: {e}");
+        }
+        Ok(Some(password))
+    }
+
+    fn delete_password(&self, profile_id: &str) -> Result<(), ProfileError> {
+        self.primary.delete_password(profile_id)?;
+        self.legacy.delete_password(profile_id)
+    }
+}
+
 /// An in-memory secret store, for tests and for running without a keychain.
 #[derive(Debug, Default)]
 pub struct MemorySecrets {
-    entries: Mutex<HashMap<String, String>>,
+    entries: Arc<Mutex<HashMap<String, String>>>,
+}
+
+impl MemorySecrets {
+    /// A second view of the same entries, for looking at what a store that has
+    /// been handed away was told.
+    pub fn clone_handle(&self) -> Self {
+        Self {
+            entries: Arc::clone(&self.entries),
+        }
+    }
 }
 
 impl SecretStore for MemorySecrets {
@@ -304,14 +376,46 @@ pub struct ProfileStore {
 }
 
 impl ProfileStore {
-    /// The default config file location, `<os config dir>/nethack-tiles/profiles.toml`.
-    ///
-    /// Named for the same reason as [`KEYCHAIN_SERVICE`]: moving it would hide
-    /// the profiles anyone has already saved.
+    /// The config file location, under the app's bundle identifier.
     pub fn default_path() -> Result<PathBuf, ProfileError> {
-        let dirs = directories::ProjectDirs::from("com", "ian", "nethack-tiles")
+        Self::path_under("io", "statico")
+    }
+
+    /// Where the config file lived under the previous bundle identifier.
+    pub fn legacy_path() -> Result<PathBuf, ProfileError> {
+        Self::path_under("com", "ian")
+    }
+
+    fn path_under(qualifier: &str, organization: &str) -> Result<PathBuf, ProfileError> {
+        let dirs = directories::ProjectDirs::from(qualifier, organization, "nethack-tiles")
             .ok_or(ProfileError::NoConfigDir)?;
         Ok(dirs.config_dir().join("profiles.toml"))
+    }
+
+    /// Copies profiles saved under the old bundle identifier into the current
+    /// location, once, if nothing is saved there yet.
+    ///
+    /// A copy rather than a move: if this version turns out to be a mistake,
+    /// the previous one still finds its own file where it left it.
+    pub fn adopt_legacy(current: &Path, legacy: &Path) -> Result<(), ProfileError> {
+        if current.exists() || !legacy.exists() {
+            return Ok(());
+        }
+        if let Some(parent) = current.parent() {
+            std::fs::create_dir_all(parent).map_err(|source| ProfileError::Write {
+                path: current.to_path_buf(),
+                source,
+            })?;
+        }
+        std::fs::copy(legacy, current).map_err(|source| ProfileError::Write {
+            path: current.to_path_buf(),
+            source,
+        })?;
+        log::info!(
+            "adopted the profiles saved at {} under the previous app identifier",
+            legacy.display()
+        );
+        Ok(())
     }
 
     /// Loads profiles from `path`, treating a missing file as "no profiles".
@@ -494,7 +598,7 @@ mod tests {
         Profile {
             host: "nethack.alt.org".into(),
             ssh_user: "nethack".into(),
-            game_user: "ian".into(),
+            game_user: "username".into(),
             tileset_id: "vanilla-3.6.7-16".into(),
             auto_login: true,
             ..Profile::new("nao", "NetHack.alt.org")
@@ -878,5 +982,103 @@ tilesetId = "vanilla-3.6.7-16"
         let mut s = store(&f.path);
         s.upsert(sample()).unwrap();
         assert!(f.path.exists());
+    }
+
+    // The app identifier changed from com.ian to io.statico, which moves both
+    // the config directory and the keychain service. Someone who was already
+    // playing should not find their servers gone.
+
+    #[test]
+    fn profiles_saved_under_the_old_identifier_are_adopted() {
+        let dir = TempDir::new("adopt");
+        let legacy = dir.0.join("com.ian").join("profiles.toml");
+        let current = dir.0.join("io.statico").join("profiles.toml");
+
+        let mut old = store(&legacy);
+        old.upsert(sample()).unwrap();
+
+        ProfileStore::adopt_legacy(&current, &legacy).expect("adopt");
+
+        assert_eq!(store(&current).get("nao").map(|p| p.host.clone()).as_deref(), Some("nethack.alt.org"));
+        assert!(legacy.exists(), "the old file is left alone, not moved");
+    }
+
+    #[test]
+    fn adopting_never_overwrites_profiles_already_saved_under_the_new_one() {
+        let dir = TempDir::new("adopt-noclobber");
+        let legacy = dir.0.join("com.ian").join("profiles.toml");
+        let current = dir.0.join("io.statico").join("profiles.toml");
+
+        store(&legacy).upsert(sample()).unwrap();
+        let mut new = store(&current);
+        new.upsert(Profile {
+            host: "eu.hardfought.org".into(),
+            ..Profile::new("hdf", "Hardfought")
+        })
+        .unwrap();
+
+        ProfileStore::adopt_legacy(&current, &legacy).expect("adopt");
+
+        let s = store(&current);
+        assert!(s.get("hdf").is_some());
+        assert!(s.get("nao").is_none(), "the legacy file overwrote the current one");
+    }
+
+    #[test]
+    fn adopting_with_nothing_to_adopt_is_not_an_error() {
+        let dir = TempDir::new("adopt-empty");
+        let legacy = dir.0.join("com.ian").join("profiles.toml");
+        let current = dir.0.join("io.statico").join("profiles.toml");
+
+        ProfileStore::adopt_legacy(&current, &legacy).expect("adopt");
+
+        assert!(!current.exists(), "a file was invented out of nothing");
+    }
+
+    #[test]
+    fn a_password_from_the_old_keychain_service_is_still_found() {
+        let legacy = Box::new(MemorySecrets::default());
+        legacy.set_password("nao", "hunter2").unwrap();
+        let secrets = WithLegacy::new(Box::new(MemorySecrets::default()), legacy);
+
+        assert_eq!(secrets.get_password("nao").unwrap().as_deref(), Some("hunter2"));
+    }
+
+    #[test]
+    fn a_password_found_in_the_old_service_is_copied_to_the_new_one() {
+        // Otherwise every launch reads through to a service the app has
+        // otherwise stopped using, and uninstalling the old app loses it.
+        let legacy = Box::new(MemorySecrets::default());
+        legacy.set_password("nao", "hunter2").unwrap();
+        let primary = Box::new(MemorySecrets::default());
+        let seen = primary.clone_handle();
+        let secrets = WithLegacy::new(primary, legacy);
+
+        secrets.get_password("nao").unwrap();
+
+        assert_eq!(seen.get_password("nao").unwrap().as_deref(), Some("hunter2"));
+    }
+
+    #[test]
+    fn the_new_service_wins_when_both_have_a_password() {
+        let legacy = Box::new(MemorySecrets::default());
+        legacy.set_password("nao", "old").unwrap();
+        let primary = Box::new(MemorySecrets::default());
+        primary.set_password("nao", "new").unwrap();
+        let secrets = WithLegacy::new(primary, legacy);
+
+        assert_eq!(secrets.get_password("nao").unwrap().as_deref(), Some("new"));
+    }
+
+    #[test]
+    fn deleting_a_password_clears_it_from_both_services() {
+        let legacy = Box::new(MemorySecrets::default());
+        legacy.set_password("nao", "hunter2").unwrap();
+        let seen = legacy.clone_handle();
+        let secrets = WithLegacy::new(Box::new(MemorySecrets::default()), legacy);
+
+        secrets.delete_password("nao").unwrap();
+
+        assert_eq!(seen.get_password("nao").unwrap(), None);
     }
 }
