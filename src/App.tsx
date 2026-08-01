@@ -181,11 +181,13 @@ export default function App() {
 
         {tiledataHint && (
           <p className="banner">
-            No tiles yet. Your <code>.nethackrc</code> on the server needs{" "}
-            <code>OPTIONS=vt_tiledata</code> <em>and</em>{" "}
-            <code>OPTIONS=windowtype:tty</code> — tile data comes from the tty
-            interface, so <code>windowtype:curses</code> never sends any. Fix
-            it, then start a new game.
+            <span className="banner__text">
+              No tiles yet. Your <code>.nethackrc</code> on the server needs{" "}
+              <code>OPTIONS=vt_tiledata</code> <em>and</em>{" "}
+              <code>OPTIONS=windowtype:tty</code> — tile data comes from the tty
+              interface, so <code>windowtype:curses</code> never sends any. Fix
+              it, then start a new game.
+            </span>
           </p>
         )}
 
@@ -224,7 +226,7 @@ export default function App() {
 
       {error && (
         <p className="banner banner--error" role="alert">
-          {error}
+          <span className="banner__text">{error}</span>
           <button className="banner__dismiss" onClick={() => setError(null)}>
             Dismiss
           </button>

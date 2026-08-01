@@ -379,14 +379,24 @@ button.danger:hover {
 
 /* ---- banners ----------------------------------------------------------- */
 
+/*
+ * The message is one flex item, not many: a flex container makes every text
+ * node and <code> its own item, which stacks the sentence into narrow columns
+ * instead of letting it wrap as prose.
+ */
 .banner {
   margin: 0;
   padding: calc(var(--cell) * 1.5) calc(var(--cell) * 2);
   border-left: 2px solid var(--gold);
   background: var(--panel);
   display: flex;
-  align-items: center;
-  gap: var(--cell);
+  align-items: flex-start;
+  gap: calc(var(--cell) * 2);
+}
+
+.banner__text {
+  flex: 1;
+  min-width: 0;
 }
 
 .banner--error {
@@ -394,7 +404,7 @@ button.danger:hover {
 }
 
 .banner__dismiss {
-  margin-left: auto;
+  flex: none;
 }
 
 code {
