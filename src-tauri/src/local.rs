@@ -14,7 +14,10 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::glyph::NetHackVersion;
-use crate::session::{Command, Session, SessionEvent};
+// `Command` is imported by the pty module below rather than here: only the
+// Unix implementation reads from the command channel, and an unused import is
+// an error on Windows, where that module does not exist.
+use crate::session::{Session, SessionEvent};
 
 /// Directories to look in beyond `PATH`. A packaged NetHack often lands
 /// somewhere the app's own inherited `PATH` does not cover -- a GUI app on
@@ -198,7 +201,9 @@ mod unix {
 
     use tokio::sync::mpsc;
 
-    use super::{Command, LocalConfig, LocalError, Session, SessionEvent};
+    use crate::session::Command;
+
+    use super::{LocalConfig, LocalError, Session, SessionEvent};
 
     /// One read from the pty. NetHack redraws a screen at a time, so this only
     /// needs to be comfortably larger than a frame to avoid extra syscalls.
