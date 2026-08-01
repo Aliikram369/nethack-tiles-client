@@ -33,6 +33,24 @@ backend.
   `.nh500rc` for 5.0), so make sure you are editing the one for the version you
   actually play.
 
+## The servers
+
+| | Connect | Notes |
+|---|---|---|
+| nethack.alt.org | `ssh nethack@nethack.alt.org` | Also offers telnet on 23 or 14321; this client does not use it. |
+| Hardfought | `ssh nethack@us.hardfought.org` | Also `eu.` (London) and `au.` (Sydney). SSH only. |
+
+Hardfought's SSH is on the **regional** hosts. The bare `hardfought.org` is the
+website, served through Cloudflare, which does not proxy port 22 — it resolves
+but can never accept an SSH connection, so a profile pointed at it fails. The
+default profile uses `us.hardfought.org`; change the host to `eu.` or `au.` if
+one of those is closer. Register once on the US host and the account syncs to
+the other two within a couple of minutes.
+
+This client speaks **SSH only**. NAO's telnet would work for the protocol, but
+it carries the game — and the dgamelaunch password this app types for you — in
+plain text, and Hardfought does not offer it at all.
+
 ## Playing locally
 
 A profile can point at a NetHack on this machine instead of a server. It runs

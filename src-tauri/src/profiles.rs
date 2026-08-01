@@ -149,10 +149,14 @@ pub fn default_profiles(local: Option<(&Path, NetHackVersion)>) -> Vec<Profile> 
             ..Profile::new("nethack-alt-org", "NetHack.alt.org")
         },
         Profile {
-            host: "hardfought.org".into(),
+            // Hardfought's SSH is on regional hosts, not on the bare domain:
+            // that one is the website, behind Cloudflare, which does not
+            // proxy port 22. `eu.` and `au.` work identically; accounts are
+            // registered on the US host and sync to the others.
+            host: "us.hardfought.org".into(),
             ssh_user: "nethack".into(),
             version: NetHackVersion::V36,
-            ..Profile::new("hardfought-org", "Hardfought")
+            ..Profile::new("hardfought-org", "Hardfought (US)")
         },
     ];
 
@@ -487,7 +491,7 @@ mod tests {
             .iter()
             .map(|p| p.host.clone())
             .collect();
-        assert_eq!(hosts, ["nethack.alt.org", "hardfought.org"]);
+        assert_eq!(hosts, ["nethack.alt.org", "us.hardfought.org"]);
     }
 
     #[test]
@@ -501,6 +505,19 @@ mod tests {
             assert!(p.game_user.is_empty());
             assert!(!p.auto_login);
         }
+    }
+
+    #[test]
+    fn the_hardfought_default_is_a_host_that_answers_ssh() {
+        // Bare hardfought.org is the website, behind Cloudflare, which does
+        // not proxy port 22 -- so it resolves but can never accept an SSH
+        // connection. Hardfought's own instructions name the regional hosts.
+        let hardfought = default_profiles(None)
+            .into_iter()
+            .find(|p| p.host.contains("hardfought"))
+            .expect("hardfought profile");
+        assert_eq!(hardfought.host, "us.hardfought.org");
+        assert_ne!(hardfought.host, "hardfought.org");
     }
 
     #[test]
