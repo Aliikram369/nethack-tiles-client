@@ -67,23 +67,29 @@ Local play is Unix-only for now; Windows needs a ConPTY implementation.
 ## Running
 
 ```sh
-make install    # npm install
-make dev        # run with hot reload
-make build      # packaged app, in src-tauri/target/release/bundle
+npm install
+npm run app          # run with hot reload
+npm run app:build    # packaged app, in src-tauri/target/release/bundle
 ```
 
-`make` on its own lists every target. They are thin wrappers over npm and
-cargo -- `make dev` is `npm run tauri dev` -- so nothing is hidden behind them.
+`npm run app` is `tauri dev`: it starts Vite and the Rust backend together and
+opens the window. `npm run dev` starts only the frontend, in a browser, where
+none of the Tauri commands exist -- useful for styling, useless for playing.
 
 ## Tests
 
 ```sh
-make test           # both suites
-make test-frontend  # vitest
-make test-backend   # cargo
-make check          # tsc --noEmit and cargo check
-make lint           # clippy, warnings as errors
+npm run test:all      # both suites
+npm test              # frontend (vitest)
+npm run test:backend  # backend (cargo)
+npm run check         # tsc --noEmit, then cargo check
+npm run lint          # clippy, warnings treated as errors
 ```
+
+`clippy` is Rust's linter: `cargo check` asks whether the code compiles,
+clippy asks whether it should have been written that way -- redundant
+closures, a `map_err` that wanted `inspect_err`, that sort of thing. It ships
+with rustup (`rustup component add clippy` if it is missing).
 
 The parts with real logic are pure and unit tested: the escape-code demuxer,
 glyph-flag decoding, tileset geometry, the profile store, the dgamelaunch login
@@ -95,11 +101,11 @@ The SSH transport only meets the login machine over a network, so that pairing
 has its own smoke test, ignored by default:
 
 ```sh
-NHTILES_TEST_USER=someaccount NHTILES_TEST_PASS=secret make live-login
+NHTILES_TEST_USER=someaccount NHTILES_TEST_PASS=secret npm run test:live-login
 ```
 
-Local play has the same arrangement -- `make local-game` starts whatever
-NetHack is installed here and checks it draws.
+Local play has the same arrangement -- `npm run test:local-game` starts
+whatever NetHack is installed on this machine and checks that it draws.
 
 ## How tiles work
 

@@ -8,8 +8,16 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
+    "app": "tauri dev",
+    "app:build": "tauri build",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:backend": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "test:all": "npm test && npm run test:backend",
+    "test:live-login": "cargo test --manifest-path src-tauri/Cargo.toml --test live_login -- --ignored --nocapture",
+    "test:local-game": "cargo test --manifest-path src-tauri/Cargo.toml --lib the_installed_nethack_starts_and_draws -- --ignored --nocapture",
+    "check": "tsc --noEmit && cargo check --manifest-path src-tauri/Cargo.toml --all-targets",
+    "lint": "cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings",
     "tiles": "cargo run --manifest-path src-tauri/Cargo.toml --bin tiles2png --"
   },
   "dependencies": {
