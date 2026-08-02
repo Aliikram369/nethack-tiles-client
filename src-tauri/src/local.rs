@@ -419,9 +419,20 @@ mod unix {
 mod tests {
     use super::*;
 
+    /// A `PATH` written the way the host writes one.
+    ///
+    /// Windows separates with `;`, so a literal "/first:/second" is a single
+    /// odd directory there rather than two.
+    fn path_env(dirs: [&str; 2]) -> String {
+        std::env::join_paths(dirs)
+            .expect("no separator in these test paths")
+            .into_string()
+            .expect("test paths are valid unicode")
+    }
+
     #[test]
     fn the_search_starts_with_the_inherited_path() {
-        let dirs = search_dirs(Some("/first:/second"));
+        let dirs = search_dirs(Some(&path_env(["/first", "/second"])));
         assert_eq!(dirs[0], PathBuf::from("/first"));
         assert_eq!(dirs[1], PathBuf::from("/second"));
     }

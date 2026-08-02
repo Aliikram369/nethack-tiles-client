@@ -171,17 +171,10 @@ export function ProfileForm({ profile, tilesets, onSave, onCancel, onDelete }: P
               placeholder={passwordSaved ? "Saved in your keychain" : "Not saved"}
             />
           </label>
-          <label className="check">
-            <input
-              type="checkbox"
-              checked={draft.autoLogin}
-              onChange={(e) => set("autoLogin", e.target.checked)}
-            />
-            <span>Type my login at the server's prompt</span>
-          </label>
           <p className="hint">
-            The password goes to your operating system's keychain, never to the
-            config file.
+            Both are typed for you at the server's login prompt. The password
+            goes to your operating system's keychain, never to the config file.
+            Leave them empty to log in by hand.
           </p>
         </fieldset>
       )}

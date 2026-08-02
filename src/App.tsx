@@ -63,7 +63,6 @@ function newProfile(tilesetId: string): Profile {
     lineHeight: 1,
     letterSpacing: 0,
     pixelPerfect: false,
-    autoLogin: false,
   };
 }
 
@@ -345,7 +344,7 @@ export default function App() {
       ) : (
         <main className="servers">
           <div className="servers__head">
-            <h2>Games</h2>
+            <h2>Servers</h2>
             <button
               onClick={() =>
                 setScreen({
@@ -355,7 +354,7 @@ export default function App() {
                 })
               }
             >
-              Add game
+              Add server
             </button>
           </div>
 
@@ -371,8 +370,13 @@ export default function App() {
                 <li key={profile.id}>
                   <button
                     className={`server${profile.id === selectedId ? " server--on" : ""}`}
-                    onClick={() => setSelectedId(profile.id)}
-                    aria-pressed={profile.id === selectedId}
+                    onClick={() => {
+                      // Selecting is also what loads this profile's tile sheet,
+                      // so it has to happen even though we leave immediately.
+                      setSelectedId(profile.id);
+                      void connect(profile);
+                    }}
+                    title={`Connect to ${profile.name || profile.host}`}
                   >
                     <Tile
                       tileset={tileset}
@@ -407,14 +411,9 @@ export default function App() {
           )}
 
           <div className="connect-row">
-            <span className="connect-row__status">{statusLine(status)}</span>
-            <button
-              className="primary"
-              disabled={!selected}
-              onClick={() => selected && void connect(selected)}
-            >
-              Connect
-            </button>
+            <span className="connect-row__status">
+              {statusLine(status) || "Click a server to connect."}
+            </span>
           </div>
         </main>
       )}

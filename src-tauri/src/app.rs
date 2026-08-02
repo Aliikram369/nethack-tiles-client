@@ -330,10 +330,12 @@ pub async fn session_connect(
             .get(&request.profile_id)
             .ok_or_else(|| format!("no profile with id {:?}", request.profile_id))?
             .clone();
-        let password = if profile.auto_login {
-            store.password(&profile.id).map_err(|e| e.to_string())?
-        } else {
+        // Read whenever there is a prompt that could want it; whether it gets
+        // typed is `autologin_for`'s decision.
+        let password = if profile.transport == Transport::Local {
             None
+        } else {
+            store.password(&profile.id).map_err(|e| e.to_string())?
         };
         (profile, password)
     };
@@ -364,23 +366,7 @@ pub async fn session_connect(
     }
     .inspect_err(|message| emit_status(&app, StatusPayload::Error(message.clone())))?;
 
-    // Only dgamelaunch has a login to answer; a local game is already "logged
-    // in" as whoever is sitting at the keyboard.
-    let autologin = match (!local && profile.auto_login, password) {
-        (true, Some(password)) if !profile.game_user.is_empty() => {
-            Some(AutoLogin::new(profile.game_user.clone(), password))
-        }
-        (true, _) => {
-            emit_status(
-                &app,
-                StatusPayload::Info(
-                    "Auto-login is on but the profile has no saved username/password".into(),
-                ),
-            );
-            None
-        }
-        _ => None,
-    };
+    let autologin = autologin_for(&profile, password);
 
     *state.session.lock().unwrap() = Some(session.clone());
     emit_status(
@@ -578,3 +564,56 @@ fn emit_status(app: &AppHandle, status: StatusPayload) {
 
 /// Demultiplexed items are emitted as a batch.
 pub type StreamBatch = Vec<AppStreamItem>;
+
+/// Decides whether to answer the dgamelaunch login prompt for a profile.
+///
+/// A saved password is never held back: a player who typed one in wants it
+/// used, and the alternative is watching the app stop at a prompt it could
+/// have answered. Both halves have to be known, because the name is typed
+/// first and a password sent in its place appears on screen in clear text.
+fn autologin_for(profile: &Profile, password: Option<String>) -> Option<AutoLogin> {
+    // A local game is already "logged in" as whoever is at the keyboard.
+    if profile.transport == Transport::Local || profile.game_user.is_empty() {
+        return None;
+    }
+    Some(AutoLogin::new(profile.game_user.clone(), password?))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn server(game_user: &str) -> Profile {
+        Profile {
+            host: "nethack.alt.org".into(),
+            ssh_user: "nethack".into(),
+            game_user: game_user.into(),
+            ..Profile::new("nao", "NAO")
+        }
+    }
+
+    #[test]
+    fn a_saved_login_is_typed_at_the_prompt() {
+        let login = autologin_for(&server("username"), Some("hunter2".into()));
+        assert!(login.is_some());
+    }
+
+    #[test]
+    fn a_local_game_has_no_prompt_to_answer() {
+        let mut profile = server("username");
+        profile.transport = Transport::Local;
+        assert!(autologin_for(&profile, Some("hunter2".into())).is_none());
+    }
+
+    #[test]
+    fn without_a_saved_password_the_player_types_it() {
+        assert!(autologin_for(&server("username"), None).is_none());
+    }
+
+    #[test]
+    fn a_password_without_a_username_answers_nothing() {
+        // Sending a password to the menu that asks for a name would type the
+        // secret where the screen shows it.
+        assert!(autologin_for(&server(""), Some("hunter2".into())).is_none());
+    }
+}

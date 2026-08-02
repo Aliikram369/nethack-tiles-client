@@ -82,7 +82,6 @@ export interface Profile {
   letterSpacing: number;
   /** Draw tiles at a whole multiple of 16px, centred, instead of stretched. */
   pixelPerfect: boolean;
-  autoLogin: boolean;
 }
 
 /** The subset of a profile the in-game display panel edits. */

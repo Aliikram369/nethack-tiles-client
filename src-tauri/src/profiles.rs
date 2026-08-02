@@ -104,10 +104,6 @@ pub struct Profile {
     /// centred in the cell, rather than stretched to fill it.
     #[serde(default)]
     pub pixel_perfect: bool,
-    /// Type the game username and password automatically at the dgamelaunch
-    /// prompt.
-    #[serde(default)]
-    pub auto_login: bool,
 }
 
 impl Profile {
@@ -130,7 +126,6 @@ impl Profile {
             line_height: default_line_height(),
             letter_spacing: default_letter_spacing(),
             pixel_perfect: false,
-            auto_login: false,
         }
     }
 }
@@ -600,7 +595,6 @@ mod tests {
             ssh_user: "nethack".into(),
             game_user: "username".into(),
             tileset_id: "vanilla-3.6.7-16".into(),
-            auto_login: true,
             ..Profile::new("nao", "NetHack.alt.org")
         }
     }
@@ -648,7 +642,6 @@ mod tests {
             assert_eq!(p.port, 22);
             // No credentials are invented; the player supplies those.
             assert!(p.game_user.is_empty());
-            assert!(!p.auto_login);
         }
     }
 
@@ -747,7 +740,6 @@ mod tests {
         assert!(p.host.is_empty(), "a local game is not on a host");
         assert!(p.ssh_user.is_empty());
         assert!(p.game_user.is_empty());
-        assert!(!p.auto_login, "there is no dgamelaunch prompt to answer");
     }
 
     #[test]
@@ -950,7 +942,6 @@ tilesetId = "vanilla-3.6.7-16"
         assert_eq!(p.line_height, 1.0);
         assert_eq!(p.letter_spacing, 0.0);
         assert!(!p.pixel_perfect);
-        assert!(!p.auto_login);
         assert_eq!(p.version, NetHackVersion::V36);
     }
 
