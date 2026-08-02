@@ -195,6 +195,39 @@ pub fn parse_tile_file(text: &str) -> Result<Vec<TileImage>, TileSourceError> {
 /// The layout must match [`crate::tileset::Tileset::tile_rect`]: tile `n` sits
 /// at column `n % columns`, row `n / columns`. Cells past the last tile are
 /// left fully transparent.
+/// Builds the statue block: one grey copy of every monster tile.
+///
+/// NetHack 3.6 is compiled with `STATUES_LOOK_LIKE_MONSTERS`, so a statue is
+/// not the monster's own tile and not one generic statue object. `tilemap.c`
+/// walks the monster list a second time and numbers a separate block of
+/// grayscale tiles after everything in the three tile files. A sheet that
+/// stops at `other.txt` therefore has no tile at any index a statue names.
+///
+/// The weights are the usual luma coefficients, so a bright monster makes a
+/// bright statue and the shape stays readable.
+pub fn statue_tiles(monsters: &[TileImage]) -> Vec<TileImage> {
+    monsters
+        .iter()
+        .map(|monster| TileImage {
+            name: format!("statue of {}", monster.name),
+            width: monster.width,
+            height: monster.height,
+            pixels: monster
+                .pixels
+                .iter()
+                .map(|&[r, g, b, a]| {
+                    let grey = (0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32)
+                        .round()
+                        .clamp(0.0, 255.0) as u8;
+                    // Alpha is copied, not greyed: the transparent pixels are
+                    // the silhouette.
+                    [grey, grey, grey, a]
+                })
+                .collect(),
+        })
+        .collect()
+}
+
 pub fn compose_sheet(
     tiles: &[TileImage],
     columns: u32,
@@ -397,6 +430,32 @@ B = (255, 0, 0)
             height: 4,
             pixels: vec![color; 16],
         }
+    }
+
+    #[test]
+    fn statues_are_one_grey_copy_of_every_monster() {
+        let monsters: Vec<_> = (0..3).map(|i| solid(&i.to_string(), [10, 200, 40, 255])).collect();
+        let statues = statue_tiles(&monsters);
+        assert_eq!(statues.len(), 3, "the statue block matches the monster block");
+        assert_eq!(statues[0].pixels[0][0], statues[0].pixels[0][1]);
+        assert_eq!(statues[0].pixels[0][1], statues[0].pixels[0][2]);
+    }
+
+    #[test]
+    fn a_statue_keeps_the_shape_of_its_monster() {
+        // Transparent pixels must stay transparent, or every statue becomes a
+        // grey square instead of a grey monster.
+        let mut monster = solid("gnome", [10, 200, 40, 255]);
+        monster.pixels[0] = [0, 0, 0, 0];
+        let statues = statue_tiles(std::slice::from_ref(&monster));
+        assert_eq!(statues[0].pixels[0][3], 0, "a hole stays a hole");
+        assert_eq!(statues[0].pixels[1][3], 255);
+    }
+
+    #[test]
+    fn a_statue_is_named_after_its_monster() {
+        let statues = statue_tiles(&[solid("gnome lord", [1, 2, 3, 255])]);
+        assert_eq!(statues[0].name, "statue of gnome lord");
     }
 
     #[test]

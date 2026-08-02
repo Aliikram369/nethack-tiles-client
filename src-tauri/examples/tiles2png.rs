@@ -15,7 +15,7 @@ use std::process::ExitCode;
 
 use nethack_tiles_lib::glyph::NetHackVersion;
 use nethack_tiles_lib::tileset::TilesetManifest;
-use nethack_tiles_lib::tilesrc::{compose_sheet, parse_tile_file};
+use nethack_tiles_lib::tilesrc::{compose_sheet, parse_tile_file, statue_tiles};
 
 struct Args {
     id: String,
@@ -81,14 +81,27 @@ fn run() -> Result<(), String> {
     let args = parse_args()?;
 
     let mut tiles = Vec::new();
-    for path in &args.inputs {
+    let mut monster_count = 0;
+    for (i, path) in args.inputs.iter().enumerate() {
         let text = std::fs::read_to_string(path)
             .map_err(|e| format!("reading {}: {e}", path.display()))?;
         let parsed =
             parse_tile_file(&text).map_err(|e| format!("parsing {}: {e}", path.display()))?;
         println!("{}: {} tiles", path.display(), parsed.len());
+        // The first file is monsters.txt, by the argument order this tool
+        // documents, and the statue block is a second pass over it.
+        if i == 0 {
+            monster_count = parsed.len();
+        }
         tiles.extend(parsed);
     }
+
+    // Statues are numbered after every tile in the three files, so they have
+    // to be generated here or a statue names an index off the end of the
+    // sheet. See `statue_tiles`.
+    let statues = statue_tiles(&tiles[..monster_count]);
+    println!("statues: {} tiles", statues.len());
+    tiles.extend(statues);
 
     let sheet = compose_sheet(&tiles, args.columns).map_err(|e| e.to_string())?;
     let manifest = TilesetManifest {
