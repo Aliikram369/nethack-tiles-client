@@ -1,6 +1,6 @@
 name: Release
 
-# Pushing a tag is the whole trigger: `npm run release` makes the tag, this
+# Pushing a tag is the whole trigger: `pnpm run release` makes the tag, this
 # builds it. The GitHub release is left as a draft, so nothing reaches anyone
 # until it is published by hand — which is also what updates the Homebrew tap
 # (see tap.yml).
@@ -23,7 +23,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # macOS is missing on purpose. It is built by `npm run release:macos`
+          # macOS is missing on purpose. It is built by `pnpm run release:macos`
           # on a Mac that already holds the Developer ID key, so the key is
           # never copied into a CI secret. An unsigned .dmg built here would be
           # worse than none: it downloads fine and then tells the player the
@@ -57,11 +57,12 @@ jobs:
         with:
           workspaces: src-tauri
 
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-          cache: npm
-      - run: npm ci
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
 
       - uses: tauri-apps/tauri-action@v0
         env:

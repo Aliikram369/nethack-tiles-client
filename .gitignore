@@ -10,6 +10,9 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
+# pnpm keeps its content store in the home directory, but falls back to here
+# when that is not writable.
+.pnpm-store
 dist
 dist-ssr
 *.local

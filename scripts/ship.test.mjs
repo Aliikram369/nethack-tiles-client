@@ -16,7 +16,7 @@ describe("releaseNotes", () => {
   });
 
   test("leaves out the release commit itself", () => {
-    // `npm run release` commits the version bump, which says nothing about
+    // `pnpm run release` commits the version bump, which says nothing about
     // what changed.
     const notes = releaseNotes(["Release v0.1.3", "Fix the statue tile"], {
       tag: "v0.1.3",

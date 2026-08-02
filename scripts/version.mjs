@@ -42,10 +42,10 @@ export function nextVersion(current, bump) {
 }
 
 /**
- * Rewrites the version in a package.json or package-lock.json.
+ * Rewrites the top-level `version` of a JSON file.
  *
- * npm repeats the package's own version inside `packages[""]` of the lockfile,
- * and leaving that stale makes `npm ci` rewrite the file mid-build.
+ * Used for `package.json` and `tauri.conf.json`, which both hold the version
+ * in the same place.
  *
  * @param {string} text
  * @param {string} version
@@ -54,7 +54,6 @@ export function nextVersion(current, bump) {
 export function withJsonVersion(text, version) {
   const doc = JSON.parse(text);
   doc.version = version;
-  if (doc.packages?.[""]) doc.packages[""].version = version;
   return `${JSON.stringify(doc, null, 2)}\n`;
 }
 

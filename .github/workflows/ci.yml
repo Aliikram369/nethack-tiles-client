@@ -17,15 +17,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-          cache: npm
-      - run: npm ci
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
       - name: Types and bundle
-        run: npm run build
+        run: pnpm run build
       - name: Tests
-        run: npm test
+        run: pnpm test
 
   backend:
     name: Backend (${{ matrix.os }})
@@ -52,16 +53,17 @@ jobs:
         with:
           workspaces: src-tauri
 
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-          cache: npm
+          cache: pnpm
       # tauri-build reads the frontend bundle path from tauri.conf.json, so the
       # bundle has to exist before anything in src-tauri compiles.
-      - run: npm ci
-      - run: npm run build
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
 
       - name: Clippy
-        run: npm run lint
+        run: pnpm run lint
       - name: Tests
-        run: npm run test:backend
+        run: pnpm run test:backend

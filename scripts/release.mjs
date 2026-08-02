@@ -4,11 +4,11 @@
  * and tags it. Pushing the tag is what actually builds and publishes — see
  * .github/workflows/release.yml.
  *
- *   npm run release              # 0.1.0 -> 0.1.1, the usual dot release
- *   npm run release -- minor     # 0.1.1 -> 0.2.0
- *   npm run release -- 1.0.0     # exactly that
- *   npm run release -- --dry-run # say what would happen, change nothing
- *   npm run release -- --push    # push the commit and tag when done
+ *   pnpm run release              # 0.1.0 -> 0.1.1, the usual dot release
+ *   pnpm run release -- minor     # 0.1.1 -> 0.2.0
+ *   pnpm run release -- 1.0.0     # exactly that
+ *   pnpm run release -- --dry-run # say what would happen, change nothing
+ *   pnpm run release -- --push    # push the commit and tag when done
  */
 
 import { execFileSync } from "node:child_process";
@@ -55,8 +55,9 @@ function main() {
 
   /** @type {Array<[string, (text: string) => string]>} */
   const edits = [
+    // pnpm-lock.yaml is not here on purpose: it records dependencies, not
+    // this package's own version, so a bump leaves it untouched.
     ["package.json", (t) => withJsonVersion(t, version)],
-    ["package-lock.json", (t) => withJsonVersion(t, version)],
     ["src-tauri/tauri.conf.json", (t) => withJsonVersion(t, version)],
     ["src-tauri/Cargo.toml", (t) => withCargoVersion(t, version)],
     ["src-tauri/Cargo.lock", (t) => withLockVersion(t, CRATE, version)],

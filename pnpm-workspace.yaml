@@ -1,0 +1,17 @@
+# Wait this many minutes after a version is published before installing it.
+#
+# A compromised package is normally found and pulled within hours. A day of
+# delay means an install never sees one. The cost is that a dependency fixed
+# today arrives tomorrow, which no part of this project is in a hurry for.
+#
+# pnpm 11 uses 1440 by default. Writing it here keeps the delay if CI runs an
+# older pnpm, and it sets minimumReleaseAgeStrict, so an install that cannot
+# meet the delay stops instead of quietly taking a newer version.
+minimumReleaseAge: 1440
+
+# Which dependencies may run install scripts. pnpm blocks them by default,
+# because an install script is what turns a bad package into a running one.
+# esbuild is here because its script unpacks the platform binary that Vite
+# builds with, and Vite cannot start without it.
+allowBuilds:
+  esbuild: true

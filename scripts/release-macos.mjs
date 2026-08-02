@@ -10,13 +10,13 @@
  *   security add-generic-password -s nethack-tiles-notary -a you@example.com -w
  *
  * (`-w` with no value prompts, keeping the password out of shell history.)
- * Run this after `npm run release` has tagged the version and the tag has been
+ * Run this after `pnpm run release` has tagged the version and the tag has been
  * pushed, so there is a draft release to attach to:
  *
- *   npm run release:macos
- *   npm run release:macos -- --skip-build   # re-verify and upload what is built
- *   npm run release:macos -- --no-upload    # build and verify, attach nothing
- *   npm run release:macos -- --force        # upload to an already-published release
+ *   pnpm run release:macos
+ *   pnpm run release:macos -- --skip-build   # re-verify and upload what is built
+ *   pnpm run release:macos -- --no-upload    # build and verify, attach nothing
+ *   pnpm run release:macos -- --force        # upload to an already-published release
  *
  * Upload before publishing the draft. Publishing is what starts the Homebrew
  * tap job, and that job needs this build to already be attached.

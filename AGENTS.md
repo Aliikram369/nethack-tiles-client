@@ -43,21 +43,21 @@ The app can also run a local NetHack in a pseudo-terminal.
 ## Commands
 
 ```sh
-npm install
-npm run app          # run the app with hot reload
-npm run app:build    # build a packaged app
-npm run dev          # frontend only, in a browser
+pnpm install
+pnpm run app          # run the app with hot reload
+pnpm run app:build    # build a packaged app
+pnpm run dev          # frontend only, in a browser
 ```
 
 ```sh
-npm run test:all     # both test suites
-npm test             # frontend tests (vitest)
-npm run test:backend # backend tests (cargo)
-npm run check        # tsc --noEmit, then cargo check
-npm run lint         # clippy, warnings are errors
+pnpm run test:all     # both test suites
+pnpm test             # frontend tests (vitest)
+pnpm run test:backend # backend tests (cargo)
+pnpm run check        # tsc --noEmit, then cargo check
+pnpm run lint         # clippy, warnings are errors
 ```
 
-`npm run dev` starts the frontend without Tauri. The Tauri commands do not
+`pnpm run dev` starts the frontend without Tauri. The Tauri commands do not
 exist there. Use it for style work only.
 
 ## How to work
@@ -106,6 +106,14 @@ and the read never ends.
 binary in the package into the app. A universal build merges only the main
 binary. A second binary breaks `--target universal-apple-darwin`.
 
+**A version published today does not install today.** `pnpm-workspace.yaml`
+sets `minimumReleaseAge: 1440`. This blocks a package until it is one day old,
+which is how most bad releases are found. To add a new package, wait, take the
+version before it, or name it in `minimumReleaseAgeExclude`.
+
+**A package cannot run install scripts unless `allowBuilds` names it.** Today
+that list holds only `esbuild`, which unpacks the binary Vite builds with.
+
 **Clippy treats warnings as errors.** An import that only a Unix build uses
 must go inside the `#[cfg(unix)]` module. A module-level import breaks the
 Windows build.
@@ -115,12 +123,12 @@ Windows build.
 One command does the whole release.
 
 ```sh
-npm run ship              # 0.1.2 -> 0.1.3
-npm run ship -- minor     # 0.1.2 -> 0.2.0
-npm run ship -- --dry-run # show the changes, write nothing
+pnpm run ship              # 0.1.2 -> 0.1.3
+pnpm run ship -- minor     # 0.1.2 -> 0.2.0
+pnpm run ship -- --dry-run # show the changes, write nothing
 ```
 
-It bumps the version in the five files that record it, commits, tags, pushes,
+It bumps the version in the four files that record it, commits, tags, pushes,
 waits for the workflow to build Windows and Linux, builds and notarises macOS
 on this machine, writes the release notes from the commit subjects, publishes,
 and waits for the Homebrew tap.
@@ -128,7 +136,7 @@ and waits for the Homebrew tap.
 Run it on a Mac. The Developer ID key stays in that keychain. The key never
 goes into a repository secret.
 
-If a step fails after the tag exists, finish the rest with `npm run ship --
+If a step fails after the tag exists, finish the rest with `pnpm run ship --
 --finish`. Do not start again from the bump.
 
 The order matters. Publication starts the tap job, and that job reads the macOS
@@ -145,6 +153,6 @@ quarantine flag, and copies out an app that has a ticket.
 A browser sets the quarantine flag on the `.dmg`. The system then checks the
 disk image, not the app inside it. An image without a ticket fails.
 
-`npm run release:macos` notarises both. It checks both with `spctl` before it
+`pnpm run release:macos` notarises both. It checks both with `spctl` before it
 uploads anything. Version 0.1.1 shipped without an image ticket. Do not remove
 these checks.

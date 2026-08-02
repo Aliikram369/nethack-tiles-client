@@ -2,11 +2,11 @@
 /**
  * Does a whole release, start to finish.
  *
- *   npm run ship               # 0.1.2 -> 0.1.3
- *   npm run ship -- minor      # 0.1.2 -> 0.2.0
- *   npm run ship -- 1.0.0      # exactly that
- *   npm run ship -- --dry-run  # say what would happen, change nothing
- *   npm run ship -- --finish   # notes, publish and tap for the current version
+ *   pnpm run ship               # 0.1.2 -> 0.1.3
+ *   pnpm run ship -- minor      # 0.1.2 -> 0.2.0
+ *   pnpm run ship -- 1.0.0      # exactly that
+ *   pnpm run ship -- --dry-run  # say what would happen, change nothing
+ *   pnpm run ship -- --finish   # notes, publish and tap for the current version
  *
  * In order: bump and tag, push, wait for the workflow to build Windows and
  * Linux, build and notarise macOS here, write the release notes from the
@@ -123,7 +123,7 @@ async function main() {
     BUILD_TIMEOUT_MS,
     () => platformAssetsReady(releaseAssets(tag)),
     `no Windows or Linux build appeared for ${tag}. Check the Actions tab; ` +
-      `the rest can be finished with:\n  npm run ship -- --finish`,
+      `the rest can be finished with:\n  pnpm run ship -- --finish`,
   );
 
   step("building, signing and notarising macOS");

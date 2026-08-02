@@ -111,23 +111,35 @@ Local play is Unix-only for now; Windows needs a ConPTY implementation.
 ## Running
 
 ```sh
-npm install
-npm run app          # run with hot reload
-npm run app:build    # packaged app, in src-tauri/target/release/bundle
+pnpm install
+pnpm run app          # run with hot reload
+pnpm run app:build    # packaged app, in src-tauri/target/release/bundle
 ```
 
-`npm run app` is `tauri dev`: it starts Vite and the Rust backend together and
-opens the window. `npm run dev` starts only the frontend, in a browser, where
+`pnpm run app` is `tauri dev`: it starts Vite and the Rust backend together and
+opens the window. `pnpm run dev` starts only the frontend, in a browser, where
 none of the Tauri commands exist -- useful for styling, useless for playing.
+
+The package manager is pnpm, and `pnpm-workspace.yaml` sets
+`minimumReleaseAge: 1440`. A version published less than a day ago will not be
+installed. Most of the npm attacks that have mattered were packages that looked
+fine for a few hours and were pulled once somebody read them; waiting a day
+costs nothing here and skips that window entirely. It has one visible effect:
+adding a dependency released this morning fails until tomorrow. Wait, pick the
+previous version, or list the package under `minimumReleaseAgeExclude` if it
+genuinely cannot wait.
+
+Install scripts are blocked unless a package is named in `allowBuilds`, which
+today is only `esbuild`.
 
 ## Tests
 
 ```sh
-npm run test:all      # both suites
-npm test              # frontend (vitest)
-npm run test:backend  # backend (cargo)
-npm run check         # tsc --noEmit, then cargo check
-npm run lint          # clippy, warnings treated as errors
+pnpm run test:all      # both suites
+pnpm test              # frontend (vitest)
+pnpm run test:backend  # backend (cargo)
+pnpm run check         # tsc --noEmit, then cargo check
+pnpm run lint          # clippy, warnings treated as errors
 ```
 
 `clippy` is Rust's linter: `cargo check` asks whether the code compiles,
@@ -145,24 +157,24 @@ The SSH transport only meets the login machine over a network, so that pairing
 has its own smoke test, ignored by default:
 
 ```sh
-NHTILES_TEST_USER=someaccount NHTILES_TEST_PASS=secret npm run test:live-login
+NHTILES_TEST_USER=someaccount NHTILES_TEST_PASS=secret pnpm run test:live-login
 ```
 
-Local play has the same arrangement -- `npm run test:local-game` starts
+Local play has the same arrangement -- `pnpm run test:local-game` starts
 whatever NetHack is installed on this machine and checks that it draws.
 
 ## Releasing
 
 ```sh
-npm run ship                # 0.1.2 -> 0.1.3
-npm run ship -- minor       # 0.1.2 -> 0.2.0
-npm run ship -- 1.0.0       # exactly that
-npm run ship -- --dry-run   # say what would happen, do nothing
+pnpm run ship                # 0.1.2 -> 0.1.3
+pnpm run ship -- minor       # 0.1.2 -> 0.2.0
+pnpm run ship -- 1.0.0       # exactly that
+pnpm run ship -- --dry-run   # say what would happen, do nothing
 ```
 
-That is the whole release. In order it bumps the version in the five files that
-have to agree (`package.json`, `package-lock.json`, `tauri.conf.json`,
-`Cargo.toml`, `Cargo.lock`), commits, tags, pushes, waits for `release.yml` to
+That is the whole release. In order it bumps the version in the four files that
+have to agree (`package.json`, `tauri.conf.json`, `Cargo.toml`, `Cargo.lock`),
+commits, tags, pushes, waits for `release.yml` to
 attach the Windows `.msi` and the Linux `.deb`/`.AppImage`, builds and
 notarises macOS locally, writes the release notes from the commit subjects
 since the last tag, publishes, and waits for the Homebrew tap to catch up.
@@ -176,8 +188,8 @@ If a later step fails, the tag already exists and rerunning from the bump would
 be wrong. Pick up where it stopped:
 
 ```sh
-npm run ship -- --finish       # notes, publish, tap
-npm run release:macos -- --skip-build   # just the upload, without rebuilding
+pnpm run ship -- --finish       # notes, publish, tap
+pnpm run release:macos -- --skip-build   # just the upload, without rebuilding
 ```
 
 ### The macOS build
@@ -188,7 +200,7 @@ and every action they call. Instead it is built on a Mac that already has the
 key in its keychain:
 
 ```sh
-npm run release:macos
+pnpm run release:macos
 ```
 
 That builds a universal `.dmg`, signs it, sends it to Apple to be notarised,
@@ -225,12 +237,12 @@ rewrites `Casks/nethack-tiles-client.rb` in
 
 **Upload the macOS build before publishing.** Publishing is the only thing that
 starts the tap job, so a `.dmg` that arrives afterwards updates nothing — the
-tap keeps offering the previous version. `npm run release:macos` refuses to
+tap keeps offering the previous version. `pnpm run release:macos` refuses to
 upload to an already-published release for this reason. If it happens anyway,
 recover with:
 
 ```sh
-npm run release:macos -- --skip-build --force
+pnpm run release:macos -- --skip-build --force
 gh workflow run tap.yml -f tag=v0.1.2
 ```
 
@@ -347,7 +359,7 @@ To build a sheet for another version or variant, download the three files from
 the matching NetHack tag and run:
 
 ```sh
-npm run tiles -- --id vanilla-3.6.7-16 --name "Vanilla 16x16 (NetHack 3.6.7)" \
+pnpm run tiles --id vanilla-3.6.7-16 --name "Vanilla 16x16 (NetHack 3.6.7)" \
   --version v36 --columns 40 --out-dir src-tauri/tiles \
   monsters.txt objects.txt other.txt
 ```
@@ -363,7 +375,7 @@ The tile art is from NetHack and is covered by the
 Two environment variables turn on diagnostics for a session, no rebuild needed:
 
 ```sh
-NHTILES_LOG=/tmp/tiles.log NHTILES_RAW=/tmp/tiles.raw npm run tauri dev
+NHTILES_LOG=/tmp/tiles.log NHTILES_RAW=/tmp/tiles.raw pnpm run tauri dev
 ```
 
 `NHTILES_LOG` records every glyph next to the character NetHack drew for it
@@ -497,7 +509,7 @@ the app already ships -- the vanilla 16x16 tiles began life in NetHack's Amiga
 port, so the icon is drawn from the same art the game is.
 
 ```sh
-npm run icon    # regenerates app-icon.png, then all the platform sizes
+pnpm run icon    # regenerates app-icon.png, then all the platform sizes
 ```
 
 It is generated rather than drawn (`src-tauri/src/icon.rs`) so it can be

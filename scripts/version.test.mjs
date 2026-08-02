@@ -44,18 +44,6 @@ describe("withJsonVersion", () => {
     expect(JSON.parse(withJsonVersion(before, "0.2.0")).version).toBe("0.2.0");
   });
 
-  test("rewrites the self-entry npm keeps in its lockfile", () => {
-    const lock =
-      JSON.stringify(
-        { name: "x", version: "0.1.0", packages: { "": { version: "0.1.0" } } },
-        null,
-        2,
-      ) + "\n";
-    const after = JSON.parse(withJsonVersion(lock, "0.2.0"));
-    expect(after.version).toBe("0.2.0");
-    expect(after.packages[""].version).toBe("0.2.0");
-  });
-
   test("leaves dependency versions alone", () => {
     const before =
       JSON.stringify(
@@ -68,7 +56,7 @@ describe("withJsonVersion", () => {
     );
   });
 
-  test("ends with a newline, the way npm writes these files", () => {
+  test("ends with a newline, the way these files are written", () => {
     const before = JSON.stringify({ version: "0.1.0" }, null, 2) + "\n";
     expect(withJsonVersion(before, "0.2.0").endsWith("}\n")).toBe(true);
   });
