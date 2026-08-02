@@ -8,6 +8,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::mpsc;
 
 use crate::autologin::{AutoLogin, AutoLoginState};
+use crate::banner::{ServerVersion, VersionWatch};
 use crate::debuglog::{file_from_env, TileDebugLog};
 use crate::glyph::{GlyphFlags, NetHackVersion};
 use crate::demux::{Demuxer, StreamItem, TileEvent};
@@ -23,9 +24,11 @@ use crate::tileset::{Tileset, TilesetManifest};
 /// packaged builds resolve them identically. Regenerate with `tiles2png` (see
 /// `README.md`).
 ///
-/// There has to be one per version: tile indices are positional, and 5.0 has
-/// 1515 tiles where 3.6.7 has 1082, so a 3.6.7 sheet on a 5.0 server draws
-/// the wrong picture for nearly every glyph.
+/// There has to be one per version: tile indices are positional, and the two
+/// releases number them differently, so a 3.6.7 sheet on a 5.0 server draws
+/// the wrong picture for nearly every glyph. Index 1469 is "unexplored" on 5.0
+/// and "statue of thug" on 3.6.7, which is what a whole map of the wrong
+/// pairing looks like.
 const BUNDLED_TILESETS: &[(&str, &[u8])] = &[
     (
         include_str!("../tiles/vanilla-3.6.7-16.json"),
@@ -45,6 +48,22 @@ pub mod events {
     pub const STATUS: &str = "nh://status";
     /// Fired once per session the first time a tile escape code arrives.
     pub const TILEDATA_SEEN: &str = "nh://tiledata-seen";
+    /// A [`super::ServerVersionPayload`], once per session, when the server's
+    /// startup banner names the NetHack release it runs.
+    pub const SERVER_VERSION: &str = "nh://server-version";
+}
+
+/// What the server's startup banner said, and whether it agrees with the
+/// profile.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerVersionPayload {
+    /// The version as printed, e.g. `5.0.0-0`.
+    pub text: String,
+    /// The tile ordering it uses, or `None` if this app has no sheet for it.
+    pub version: Option<NetHackVersion>,
+    /// What to tell the player, or `None` if the profile was right.
+    pub warning: Option<String>,
 }
 
 /// Connection state for the status bar.
@@ -444,6 +463,9 @@ async fn consume_session(
 ) {
     let mut demuxer = Demuxer::new();
     let mut announced_tiledata = false;
+    // The profile only records which release the player expects. One host can
+    // serve several, so take the server's own word for it. See banner.rs.
+    let mut version_watch = VersionWatch::new();
 
     // Diagnostics, off unless the environment asks for them. See debuglog.rs.
     let mut debug = file_from_env("NHTILES_LOG").map(|f| TileDebugLog::new(f, tile_count));
@@ -456,6 +478,24 @@ async fn consume_session(
                     use std::io::Write;
                     let _ = raw.write_all(&bytes);
                     let _ = raw.flush();
+                }
+
+                if version_watch.wants_output() {
+                    let text: String = bytes.iter().map(|&b| b as char).collect();
+                    if let Some(found) = version_watch.observe(&text) {
+                        let warning = version_warning(&found, version);
+                        if let Some(warning) = warning.as_deref() {
+                            log::warn!("{warning}");
+                        }
+                        let _ = app.emit(
+                            events::SERVER_VERSION,
+                            &ServerVersionPayload {
+                                text: found.text,
+                                version: found.version,
+                                warning,
+                            },
+                        );
+                    }
                 }
 
                 if let Some(login) = autologin.as_mut() {
@@ -565,6 +605,43 @@ fn emit_status(app: &AppHandle, status: StatusPayload) {
 /// Demultiplexed items are emitted as a batch.
 pub type StreamBatch = Vec<AppStreamItem>;
 
+/// The warning to show when the server is not the release the profile expects.
+///
+/// One host can serve several releases: Hardfought's menu offers 3.4.3, 3.6.7
+/// and 5.0.0 behind a single SSH host. The profile holds a guess, and the
+/// startup banner holds the truth. Returns `None` when they agree.
+fn version_warning(found: &ServerVersion, profile: NetHackVersion) -> Option<String> {
+    if found.version == Some(profile) {
+        return None;
+    }
+    let expected = version_name(profile);
+    Some(match found.version {
+        Some(actual) => format!(
+            "This server runs NetHack {}, but this profile is set to {expected}. \
+             Tiles will be wrong. Disconnect, then set the profile's NetHack \
+             version to {}.",
+            found.text,
+            version_name(actual)
+        ),
+        // Naming the release is the useful half even with no sheet to offer.
+        // It says why the tiles look wrong, which stops the player looking for
+        // a setting that would put them right.
+        None => format!(
+            "This server runs NetHack {}, which this app has no tile sheet for. \
+             Tiles will be wrong. Turn tiles off, or start a {expected} game on \
+             this server.",
+            found.text
+        ),
+    })
+}
+
+fn version_name(version: NetHackVersion) -> &'static str {
+    match version {
+        NetHackVersion::V36 => "NetHack 3.6",
+        NetHackVersion::V50 => "NetHack 5.0 / 3.7",
+    }
+}
+
 /// Decides whether to answer the dgamelaunch login prompt for a profile.
 ///
 /// A saved password is never held back: a player who typed one in wants it
@@ -608,6 +685,48 @@ mod tests {
     #[test]
     fn without_a_saved_password_the_player_types_it() {
         assert!(autologin_for(&server("username"), None).is_none());
+    }
+
+    fn found(text: &str, version: Option<NetHackVersion>) -> ServerVersion {
+        ServerVersion {
+            text: text.into(),
+            version,
+        }
+    }
+
+    #[test]
+    fn a_server_running_the_release_the_profile_expects_says_nothing() {
+        let warning = version_warning(&found("3.6.7", Some(NetHackVersion::V36)), NetHackVersion::V36);
+        assert_eq!(warning, None);
+    }
+
+    #[test]
+    fn a_5_0_server_under_a_3_6_profile_is_reported() {
+        // The case this exists for: Hardfought serves 3.6.7 and 5.0.0 from one
+        // host, and the wrong pairing draws a statue of a thug for every
+        // unexplored square.
+        let warning = version_warning(&found("5.0.0-0", Some(NetHackVersion::V50)), NetHackVersion::V36)
+            .expect("a mismatch must be reported");
+        assert!(warning.contains("5.0.0-0"), "{warning}");
+        assert!(warning.contains("3.6"), "{warning}");
+    }
+
+    #[test]
+    fn the_warning_says_which_setting_to_change() {
+        // A warning with no next step just tells the player something is
+        // broken.
+        let warning = version_warning(&found("5.0.0-0", Some(NetHackVersion::V50)), NetHackVersion::V36)
+            .expect("a mismatch must be reported");
+        assert!(warning.contains("version"), "{warning}");
+    }
+
+    #[test]
+    fn a_release_with_no_sheet_is_named_rather_than_guessed_at() {
+        let warning = version_warning(&found("3.4.3", None), NetHackVersion::V36)
+            .expect("an unsupported release must be reported");
+        assert!(warning.contains("3.4.3"), "{warning}");
+        // It must not claim a sheet would fix it, because none would.
+        assert!(!warning.contains("5.0"), "{warning}");
     }
 
     #[test]

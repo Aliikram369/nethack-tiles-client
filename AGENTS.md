@@ -83,6 +83,14 @@ sends tile codes. The curses port sends none.
 **Tile numbers are positional.** A sheet from the wrong NetHack version draws
 the wrong picture for almost every glyph.
 
+**One server can run more than one NetHack version.** The Hardfought menu
+offers 3.4.3, 3.6.7 and 5.0.0. The profile holds only what the player chose,
+so the app reads the version from the startup banner. See `banner.rs`.
+
+**An out-of-range tile number no longer proves a version mismatch.** The two
+sheets overlap. Index 1469 is `unexplored` on 5.0 and `statue of thug` on
+3.6.7. Both are in range. Only the banner gives the version.
+
 **Hardfought needs a regional host.** Use `us.hardfought.org`, `eu.`, or `au.`.
 The bare domain goes through a proxy that cannot accept SSH.
 

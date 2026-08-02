@@ -1,5 +1,6 @@
 pub mod app;
 pub mod autologin;
+pub mod banner;
 pub mod debuglog;
 pub mod demux;
 pub mod glyph;

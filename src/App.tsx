@@ -14,6 +14,7 @@ import { TILES, Tile } from "./components/Tile";
 import type {
   DisplaySettings,
   Profile,
+  ServerVersion,
   Status,
   TilesetManifest,
   TilesetPayload,
@@ -24,6 +25,7 @@ import {
   listProfiles,
   listTilesets,
   lastUsedProfile,
+  onServerVersion,
   onStatus,
   onTiledataSeen,
   openExternal,
@@ -79,6 +81,7 @@ export default function App() {
   const [tilesEnabled, setTilesEnabled] = useState(true);
   const [tiledataHint, setTiledataHint] = useState(false);
   const [sheetMismatch, setSheetMismatch] = useState<number | null>(null);
+  const [serverVersion, setServerVersion] = useState<ServerVersion | null>(null);
   const [showDisplay, setShowDisplay] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const graceTimer = useRef<number | null>(null);
@@ -135,6 +138,13 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    const unlisten = onServerVersion(setServerVersion);
+    return () => {
+      void unlisten.then((un) => un());
+    };
+  }, []);
+
+  useEffect(() => {
     const unlisten = onTiledataSeen(() => {
       setTiledataHint(false);
       if (graceTimer.current) window.clearTimeout(graceTimer.current);
@@ -150,6 +160,7 @@ export default function App() {
       await sessionConnect(profile.id, 80, 24);
       setConnected(profile);
       setSheetMismatch(null);
+      setServerVersion(null);
       if (graceTimer.current) window.clearTimeout(graceTimer.current);
       graceTimer.current = window.setTimeout(
         () => setTiledataHint(true),
@@ -265,6 +276,12 @@ export default function App() {
                 </>
               )}
             </span>
+          </p>
+        )}
+
+        {serverVersion?.warning && (
+          <p className="banner banner--error">
+            <span className="banner__text">{serverVersion.warning}</span>
           </p>
         )}
 

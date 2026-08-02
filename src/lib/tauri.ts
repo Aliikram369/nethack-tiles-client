@@ -5,6 +5,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type {
   Profile,
+  ServerVersion,
   Status,
   StreamItem,
   TilesetManifest,
@@ -15,6 +16,7 @@ export const EVENTS = {
   stream: "nh://stream",
   status: "nh://status",
   tiledataSeen: "nh://tiledata-seen",
+  serverVersion: "nh://server-version",
 } as const;
 
 export const listProfiles = () => invoke<Profile[]>("list_profiles");
@@ -89,3 +91,6 @@ export const onStatus = (fn: (status: Status) => void) =>
 
 export const onTiledataSeen = (fn: () => void) =>
   subscribe<unknown>(EVENTS.tiledataSeen, () => fn());
+
+export const onServerVersion = (fn: (found: ServerVersion) => void) =>
+  subscribe<ServerVersion>(EVENTS.serverVersion, fn);

@@ -90,6 +90,18 @@ export type DisplaySettings = Pick<
   "fontFamily" | "fontSize" | "lineHeight" | "letterSpacing" | "pixelPerfect"
 >;
 
+/**
+ * What the server's startup banner said about itself.
+ *
+ * One host can serve several NetHack releases, so the profile's version is a
+ * guess and this is the answer. `warning` is set when the two disagree.
+ */
+export interface ServerVersion {
+  text: string;
+  version: "v36" | "v50" | null;
+  warning: string | null;
+}
+
 export type Status =
   | { state: "connecting"; message: string }
   | { state: "connected"; message: string }
