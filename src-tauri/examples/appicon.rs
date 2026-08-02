@@ -17,8 +17,8 @@ use nethack_tiles_lib::tileset::TilesetManifest;
 
 /// The sheet the icon is cut from, embedded so the tool needs no arguments
 /// beyond where to write.
-const MANIFEST: &str = include_str!("../../tiles/vanilla-3.6.7-16.json");
-const SHEET: &[u8] = include_bytes!("../../tiles/vanilla-3.6.7-16.png");
+const MANIFEST: &str = include_str!("../tiles/vanilla-3.6.7-16.json");
+const SHEET: &[u8] = include_bytes!("../tiles/vanilla-3.6.7-16.png");
 
 fn main() -> ExitCode {
     match run() {

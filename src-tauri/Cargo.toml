@@ -6,7 +6,10 @@ authors = ["Ian Langworth"]
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/statico/nethack-tiles-client"
-# `tiles2png` is a build-time helper; the app is what `cargo run` should start.
+# The app is the only binary. `tiles2png` and `appicon` are examples rather
+# than `src/bin` entries because the macOS bundler copies every binary the
+# package declares into the .app, and a universal build only ever lipos the
+# main one — so a second binary breaks `--target universal-apple-darwin`.
 default-run = "nethack-tiles-client"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
