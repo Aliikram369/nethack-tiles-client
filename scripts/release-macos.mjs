@@ -41,6 +41,24 @@ const BUNDLE = "src-tauri/target/universal-apple-darwin/release/bundle";
 
 const APP = "NetHack Tiles Client.app";
 
+/** Both halves of the universal binary. */
+const TARGETS = ["aarch64-apple-darwin", "x86_64-apple-darwin"];
+
+/**
+ * Reports which Rust targets `rustup` is missing.
+ *
+ * A default toolchain has only the host architecture, and the bundler does not
+ * notice the other one is absent until it has finished compiling the first —
+ * over a minute of work before the error appears.
+ *
+ * @param {string} installed output of `rustup target list --installed`
+ * @returns {string[]}
+ */
+export function missingTargets(installed) {
+  const have = new Set(installed.split("\n").map((line) => line.trim().split(" ")[0]));
+  return TARGETS.filter((target) => !have.has(target));
+}
+
 /**
  * Finds the Developer ID certificate for a team in `security find-identity`.
  *
@@ -117,6 +135,7 @@ function main() {
   const tag = `v${version}`;
 
   if (!skipBuild) {
+    requireTargets();
     const credentials = resolveCredentials();
     console.log(`building ${tag} as ${credentials.APPLE_SIGNING_IDENTITY}`);
     // Notarisation is a round trip to Apple and the wait is most of the time
@@ -148,6 +167,17 @@ function main() {
     `attached to the ${tag} draft.\n` +
       "Publishing that draft is what updates the Homebrew tap.",
   );
+}
+
+/**
+ * Checks for both architectures before anything is compiled, since the
+ * bundler builds one and only then discovers the other is unavailable.
+ */
+function requireTargets() {
+  const missing = missingTargets(capture("rustup", ["target", "list", "--installed"]));
+  if (missing.length) {
+    fail(`rustup is missing ${missing.join(" and ")}:\n  rustup target add ${missing.join(" ")}`);
+  }
 }
 
 /**

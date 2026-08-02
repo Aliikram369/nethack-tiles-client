@@ -3,9 +3,37 @@ import { describe, expect, test } from "vitest";
 import {
   isNotarized,
   keychainAccount,
+  missingTargets,
   pickLocalDmg,
   pickSigningIdentity,
 } from "./release-macos.mjs";
+
+describe("missingTargets", () => {
+  test("is empty when both halves of the universal binary are installed", () => {
+    const installed = ["aarch64-apple-darwin", "x86_64-apple-darwin"].join("\n");
+    expect(missingTargets(installed)).toEqual([]);
+  });
+
+  test("names the target rustup has to add", () => {
+    // The default install has only the host architecture, so on an Apple
+    // Silicon Mac the Intel half is the one that is missing.
+    const installed = ["aarch64-apple-darwin", "aarch64-apple-ios"].join("\n");
+    expect(missingTargets(installed)).toEqual(["x86_64-apple-darwin"]);
+  });
+
+  test("does not count an iOS target as its macOS namesake", () => {
+    // `x86_64-apple-ios` contains neither more nor less than a substring match
+    // would need to be fooled by, and it cannot build a Mac binary.
+    expect(missingTargets("aarch64-apple-darwin\nx86_64-apple-ios")).toEqual([
+      "x86_64-apple-darwin",
+    ]);
+  });
+
+  test("tolerates the (installed) suffix rustup prints in some modes", () => {
+    const installed = ["aarch64-apple-darwin (installed)", "x86_64-apple-darwin (installed)"];
+    expect(missingTargets(installed.join("\n"))).toEqual([]);
+  });
+});
 
 describe("pickSigningIdentity", () => {
   const identities = [
