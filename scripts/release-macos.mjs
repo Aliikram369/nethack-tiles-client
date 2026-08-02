@@ -16,6 +16,10 @@
  *   npm run release:macos
  *   npm run release:macos -- --skip-build   # re-verify and upload what is built
  *   npm run release:macos -- --no-upload    # build and verify, attach nothing
+ *   npm run release:macos -- --force        # upload to an already-published release
+ *
+ * Upload before publishing the draft. Publishing is what starts the Homebrew
+ * tap job, and that job needs this build to already be attached.
  */
 
 import { execFileSync, spawnSync } from "node:child_process";
@@ -86,6 +90,23 @@ export function keychainAccount(output) {
 }
 
 /**
+ * Reads `gh release view --json isDraft`.
+ *
+ * Anything unreadable counts as "not a draft", so a surprise from `gh` stops
+ * the upload rather than waving it through.
+ *
+ * @param {string} output
+ * @returns {boolean}
+ */
+export function isDraft(output) {
+  try {
+    return JSON.parse(output).isDraft === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Picks this version's universal disk image out of the bundle directory.
  *
  * Nothing clears that directory between builds, so matching on the version is
@@ -130,6 +151,7 @@ function main() {
   const argv = process.argv.slice(2);
   const skipBuild = argv.includes("--skip-build");
   const upload = !argv.includes("--no-upload");
+  const force = argv.includes("--force");
 
   const version = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version;
   const tag = `v${version}`;
@@ -163,7 +185,7 @@ function main() {
     return;
   }
 
-  requireDraft(tag);
+  if (!force) requireDraft(tag);
   run("gh", ["release", "upload", tag, path, "--clobber"]);
   console.log(
     `attached to the ${tag} draft.\n` +
@@ -303,19 +325,31 @@ function notariseDisk(dmg, credentials) {
 }
 
 /**
- * A draft release is made by the tag's CI run, and uploading to a tag that has
- * none creates a *published* release instead — announcing the build early and
- * with the other platforms missing.
+ * Requires a release that exists and is still a draft.
+ *
+ * Uploading to a tag with no release creates a published one, announcing the
+ * build with every other platform missing. Uploading to an already-published
+ * release is just as bad in a quieter way: publishing is what starts the tap
+ * job, so the tap runs before the disk image arrives and updates nothing.
+ * That is how v0.1.2 shipped with the tap left pointing at v0.1.1.
  *
  * @param {string} tag
  */
 function requireDraft(tag) {
+  let view = "";
   try {
-    capture("gh", ["release", "view", tag]);
+    view = capture("gh", ["release", "view", tag, "--json", "isDraft"]);
   } catch {
     fail(
       `there is no ${tag} release to attach to.\n` +
         `  push the tag first (git push origin main ${tag}) and let the workflow draft it`,
+    );
+  }
+  if (!isDraft(view)) {
+    fail(
+      `${tag} is already published, so the Homebrew tap has run without this build.\n` +
+        "  upload anyway with --force, then rerun the tap workflow for the tag:\n" +
+        `    gh workflow run tap.yml -f tag=${tag}`,
     );
   }
 }

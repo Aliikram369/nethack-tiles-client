@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  isDraft,
   isNotarized,
   keychainAccount,
   missingTargets,
@@ -81,6 +82,24 @@ describe("keychainAccount", () => {
     // Adding the item without -a leaves a password nobody can attribute to an
     // Apple ID, which notarytool needs as a separate argument.
     expect(keychainAccount('class: "genp"\n    "svce"<blob>="nethack-tiles-notary"')).toBeNull();
+  });
+});
+
+describe("isDraft", () => {
+  test("is true for a release still in draft", () => {
+    expect(isDraft('{"isDraft":true}')).toBe(true);
+  });
+
+  test("is false once the release is published", () => {
+    // v0.1.2 was published before its .dmg finished uploading, so the tap job
+    // ran against a release with no macOS build and failed.
+    expect(isDraft('{"isDraft":false}')).toBe(false);
+  });
+
+  test("treats unreadable output as not a draft", () => {
+    // Refusing to upload is the safe answer: the cost is a rerun, where the
+    // cost of a wrong "yes" is a published release with a missing asset.
+    expect(isDraft("not json")).toBe(false);
   });
 });
 

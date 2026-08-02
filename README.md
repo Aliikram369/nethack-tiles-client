@@ -22,9 +22,6 @@ backend.
 
 ## Installing
 
-> No release has been tagged yet, so the download links and the tap are empty
-> until the first one. Until then, [build it](#running).
-
 On macOS:
 
 ```sh
@@ -221,8 +218,18 @@ already embedded in the signature of every build.
 
 Publishing the draft on GitHub starts `tap.yml`, which checksums the `.dmg` and
 rewrites `Casks/nethack-tiles-client.rb` in
-[statico/tap](https://github.com/statico/tap). Upload the macOS build *before*
-publishing — the tap step looks for it and fails without it.
+[statico/tap](https://github.com/statico/tap).
+
+**Upload the macOS build before publishing.** Publishing is the only thing that
+starts the tap job, so a `.dmg` that arrives afterwards updates nothing — the
+tap keeps offering the previous version. `npm run release:macos` refuses to
+upload to an already-published release for this reason. If it happens anyway,
+recover with:
+
+```sh
+npm run release:macos -- --skip-build --force
+gh workflow run tap.yml -f tag=v0.1.2
+```
 
 Two things have to be set up on the repo first:
 
