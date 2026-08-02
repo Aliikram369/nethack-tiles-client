@@ -135,4 +135,16 @@ describe("isNotarized", () => {
   test("rejects an ad-hoc signed build", () => {
     expect(isNotarized("x.app: rejected\nsource=no usable signature")).toBe(false);
   });
+
+  test("rejects a signed disk image around a notarised app", () => {
+    // Verbatim from v0.1.1, which shipped this way: the bundler notarises the
+    // .app and then builds the .dmg around it, so the image itself carries no
+    // ticket and Gatekeeper turns it away at mount.
+    const output = [
+      "rel.dmg: rejected",
+      "source=Unnotarized Developer ID",
+      "origin=Developer ID Application: Ian Langworth (TA59XVWN77)",
+    ].join("\n");
+    expect(isNotarized(output)).toBe(false);
+  });
 });

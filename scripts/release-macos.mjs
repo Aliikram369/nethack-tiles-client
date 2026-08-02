@@ -134,9 +134,10 @@ function main() {
   const version = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version;
   const tag = `v${version}`;
 
+  const credentials = resolveCredentials();
+
   if (!skipBuild) {
     requireTargets();
-    const credentials = resolveCredentials();
     console.log(`building ${tag} as ${credentials.APPLE_SIGNING_IDENTITY}`);
     // Notarisation is a round trip to Apple and the wait is most of the time
     // this takes; the output is left visible so it does not look hung.
@@ -154,6 +155,7 @@ function main() {
 
   verify(join(ROOT, BUNDLE, "macos", APP));
   const path = join(dmgDir, dmg);
+  notariseDisk(path, credentials);
   console.log(`  ${dmg}`);
 
   if (!upload) {
@@ -252,6 +254,52 @@ function verify(app) {
   // needing the network; stapling puts it inside the bundle.
   capture("xcrun", ["stapler", "validate", app]);
   console.log("notarised and stapled");
+}
+
+/**
+ * Notarises the disk image itself, which the bundler does not do.
+ *
+ * Tauri notarises the .app and then builds the .dmg around it, so the image
+ * carries a signature but no ticket. That is invisible to `brew`, which
+ * downloads with curl and copies out the stapled app, and fatal to anyone
+ * using the releases page: a browser sets com.apple.quarantine on the .dmg,
+ * and Gatekeeper assesses the image at mount rather than the app inside it.
+ *
+ * @param {string} dmg
+ * @param {Record<string, string>} credentials
+ */
+function notariseDisk(dmg, credentials) {
+  const stapled = spawnSync("xcrun", ["stapler", "validate", dmg], { encoding: "utf8" });
+  if (stapled.status === 0) {
+    console.log("disk image already notarised");
+  } else {
+    console.log("notarising the disk image (a few minutes)");
+    run("xcrun", [
+      "notarytool",
+      "submit",
+      dmg,
+      "--apple-id",
+      credentials.APPLE_ID,
+      "--team-id",
+      credentials.APPLE_TEAM_ID,
+      "--password",
+      credentials.APPLE_PASSWORD,
+      "--wait",
+    ]);
+    run("xcrun", ["stapler", "staple", dmg]);
+  }
+
+  // The assessment a quarantined disk image gets when it is opened, which is
+  // the one that failed for v0.1.1.
+  const assessed = capture(
+    "spctl",
+    ["--assess", "-vvv", "-t", "open", "--context", "context:primary-signature", dmg],
+    true,
+  );
+  if (!isNotarized(assessed)) {
+    fail(`Gatekeeper would refuse this disk image:\n${indent(assessed)}`);
+  }
+  console.log("disk image notarised and stapled");
 }
 
 /**
