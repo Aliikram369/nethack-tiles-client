@@ -153,6 +153,15 @@ function main() {
   const upload = !argv.includes("--no-upload");
   const force = argv.includes("--force");
 
+  // Everything a build needs, checked without doing one, so `ship` can stop
+  // before it commits rather than after it compiles.
+  if (argv.includes("--check")) {
+    requireTargets();
+    const credentials = resolveCredentials();
+    console.log(`ready to sign as ${credentials.APPLE_SIGNING_IDENTITY}`);
+    return;
+  }
+
   const version = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version;
   const tag = `v${version}`;
 

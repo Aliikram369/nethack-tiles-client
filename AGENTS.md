@@ -104,26 +104,27 @@ Windows build.
 
 ## Releases
 
-Five files record the version. One command changes all of them.
+One command does the whole release.
 
 ```sh
-npm run release              # 0.1.0 -> 0.1.1
-npm run release -- minor     # 0.1.0 -> 0.2.0
-npm run release -- --dry-run # show the changes, write nothing
+npm run ship              # 0.1.2 -> 0.1.3
+npm run ship -- minor     # 0.1.2 -> 0.2.0
+npm run ship -- --dry-run # show the changes, write nothing
 ```
 
-Push the tag to start the build.
+It bumps the version in the five files that record it, commits, tags, pushes,
+waits for the workflow to build Windows and Linux, builds and notarises macOS
+on this machine, writes the release notes from the commit subjects, publishes,
+and waits for the Homebrew tap.
 
-```sh
-git push origin main v0.1.1
-```
+Run it on a Mac. The Developer ID key stays in that keychain. The key never
+goes into a repository secret.
 
-The workflow builds Windows and Linux. It attaches them to a draft release.
+If a step fails after the tag exists, finish the rest with `npm run ship --
+--finish`. Do not start again from the bump.
 
-A maintainer builds macOS on a Mac with `npm run release:macos`. The Developer
-ID key stays in that keychain. The key never goes into a repository secret.
-
-Publish the draft last. Publication updates the Homebrew tap.
+The order matters. Publication starts the tap job, and that job reads the macOS
+build from the release. A build that arrives after publication updates nothing.
 
 ### Two things must both carry a notarisation ticket
 

@@ -153,29 +153,32 @@ whatever NetHack is installed on this machine and checks that it draws.
 
 ## Releasing
 
-Versions are dot releases: 0.1.0, 0.1.1, 0.1.2. The version is written down in
-five files that have to agree — `package.json`, `package-lock.json`,
-`tauri.conf.json`, `Cargo.toml`, `Cargo.lock` — so one command edits all of
-them:
-
 ```sh
-npm run release                # 0.1.0 -> 0.1.1
-npm run release -- minor       # 0.1.0 -> 0.2.0
-npm run release -- 1.0.0       # exactly that
-npm run release -- --dry-run   # say what would change, change nothing
+npm run ship                # 0.1.2 -> 0.1.3
+npm run ship -- minor       # 0.1.2 -> 0.2.0
+npm run ship -- 1.0.0       # exactly that
+npm run ship -- --dry-run   # say what would happen, do nothing
 ```
 
-It refuses to run on a dirty tree, off `main`, or onto a tag that exists. Then
-it commits and tags, and stops. **Nothing is published until the tag is
-pushed:**
+That is the whole release. In order it bumps the version in the five files that
+have to agree (`package.json`, `package-lock.json`, `tauri.conf.json`,
+`Cargo.toml`, `Cargo.lock`), commits, tags, pushes, waits for `release.yml` to
+attach the Windows `.msi` and the Linux `.deb`/`.AppImage`, builds and
+notarises macOS locally, writes the release notes from the commit subjects
+since the last tag, publishes, and waits for the Homebrew tap to catch up.
+
+It runs its checks *before* the bump rather than after the compile: macOS only,
+clean tree, on `main`, `gh` logged in, both Rust targets installed, and the
+signing certificate and notary password present. Every one of those has cost a
+release.
+
+If a later step fails, the tag already exists and rerunning from the bump would
+be wrong. Pick up where it stopped:
 
 ```sh
-git push origin main v0.1.1
+npm run ship -- --finish       # notes, publish, tap
+npm run release:macos -- --skip-build   # just the upload, without rebuilding
 ```
-
-That tag starts `release.yml`, which builds the Windows `.msi` and the Linux
-`.deb`/`.AppImage` and attaches them to a **draft** release. The draft is the
-review step — nothing is public and Homebrew has not moved.
 
 ### The macOS build
 

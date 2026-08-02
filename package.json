@@ -21,6 +21,7 @@
     "tiles": "cargo run --manifest-path src-tauri/Cargo.toml --example tiles2png --",
     "icon": "cargo run --manifest-path src-tauri/Cargo.toml --example appicon -- --out app-icon.png --size 1024 && tauri icon app-icon.png",
     "release": "node scripts/release.mjs",
+    "ship": "node scripts/ship.mjs",
     "release:macos": "node scripts/release-macos.mjs"
   },
   "dependencies": {
