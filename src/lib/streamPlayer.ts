@@ -103,9 +103,7 @@ export class StreamPlayer {
             // the terminal's own background. Whatever was here is still gone,
             // hence the damage rather than simply skipping the cell.
             if (flags.unexplored || flags.nothing) {
-              // `forget`, not `damage`: nothing is known about this square, so
-              // any terrain remembered for it belongs to a level already left.
-              this.grid.forget(row, col);
+              this.grid.damage(row, col);
             } else {
               this.grid.place(row, col, tile, flags);
             }

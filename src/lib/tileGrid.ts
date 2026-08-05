@@ -48,19 +48,6 @@ export class TileGrid<F = GlyphFlags> {
   private tiles = new Map<string, TileEntry<F>>();
   /** Glyphs seen this frame whose character has not been read back yet. */
   private pending: { row: number; col: number; tile: number; flags: F }[] = [];
-  /**
-   * The last terrain seen in a cell, kept so a square that goes dark can carry
-   * on showing what the player found there. See {@link commit}.
-   */
-  private terrain = new Map<string, TileEntry<F>>();
-  /**
-   * Lowest tile index ever drawn as a space, which is `S_stone` -- the first
-   * entry of NetHack's terrain block, since the tile file runs monsters, then
-   * objects, then terrain. So a lower index is a monster or an object and must
-   * not be mistaken for terrain. Learned rather than hardcoded because the
-   * numbering moves between NetHack versions.
-   */
-  private stoneTile: number | null = null;
 
   /**
    * Records a glyph at a cell. The character is not known yet -- NetHack
@@ -85,45 +72,13 @@ export class TileGrid<F = GlyphFlags> {
    */
   commit(readCell: CellReader): void {
     for (const { row, col, tile, flags } of this.pending) {
-      const k = key(row, col);
       const ch = readCell(row, col);
       if (ch === null) {
         // The terminal shrank out from under us.
-        this.tiles.delete(k);
-        this.terrain.delete(k);
+        this.tiles.delete(key(row, col));
         continue;
       }
-
-      if (ch === " ") {
-        // NetHack is showing the player nothing here. That is `S_stone`, which
-        // means three things at once: the rock a corridor is cut through, a
-        // square never seen, and -- the common one -- a floor square the hero
-        // can no longer see. Its tile is an opaque rock texture, so painting it
-        // turns every room already walked through into solid rock.
-        //
-        // Nothing in the glyph tells the three apart, but the cell's own past
-        // does: if terrain was ever found here, this is that terrain gone dark.
-        this.stoneTile = this.stoneTile === null ? tile : Math.min(this.stoneTile, tile);
-        const remembered = this.terrain.get(k);
-        if (remembered && remembered.tile >= this.stoneTile) {
-          // The recorded character has to become the space the cell now holds,
-          // or the backstop in `prune` would drop the tile on the next frame.
-          this.tiles.set(k, { ...remembered, ch });
-          continue;
-        }
-        // Nothing was ever here, so it really is rock.
-        this.tiles.set(k, { row, col, tile, flags, ch });
-        continue;
-      }
-
-      const entry = { row, col, tile, flags, ch };
-      this.tiles.set(k, entry);
-      // A monster standing on a floor square must not become the memory of it.
-      // Before the first space arrives there is no boundary to test against, so
-      // record it anyway; the check on the way out settles it.
-      if (this.stoneTile === null || tile >= this.stoneTile) {
-        this.terrain.set(k, entry);
-      }
+      this.tiles.set(key(row, col), { row, col, tile, flags, ch });
     }
     this.pending.length = 0;
   }
@@ -140,18 +95,6 @@ export class TileGrid<F = GlyphFlags> {
   damage(row: number, col: number): void {
     this.tiles.delete(key(row, col));
     this.pending = this.pending.filter((p) => p.row !== row || p.col !== col);
-  }
-
-  /**
-   * Retires the tile at a cell *and* forgets what terrain was found there.
-   *
-   * For a cell NetHack says nothing is known about. {@link damage} is the
-   * gentler one: a menu drawn over the map hides terrain without unlearning it,
-   * and the memory has to survive that.
-   */
-  forget(row: number, col: number): void {
-    this.terrain.delete(key(row, col));
-    this.damage(row, col);
   }
 
   /** Drops every tile whose cell no longer holds the character it recorded. */
@@ -185,9 +128,5 @@ export class TileGrid<F = GlyphFlags> {
   clear(): void {
     this.tiles.clear();
     this.pending.length = 0;
-    // The remembered terrain goes too: a clear is a new level as often as not,
-    // and stale memory would show the old one's floor through the new one's
-    // rock. `stoneTile` survives, being a property of the tile file.
-    this.terrain.clear();
   }
 }
