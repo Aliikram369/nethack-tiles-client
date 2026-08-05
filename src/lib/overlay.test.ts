@@ -22,6 +22,8 @@ const noFlags: GlyphFlags = {
   statue: false,
   objpile: false,
   bwLava: false,
+  unexplored: false,
+  nothing: false,
   female: false,
 };
 

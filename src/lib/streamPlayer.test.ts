@@ -13,6 +13,8 @@ const noFlags: GlyphFlags = {
   statue: false,
   objpile: false,
   bwLava: false,
+  unexplored: false,
+  nothing: false,
   female: false,
 };
 
@@ -24,8 +26,8 @@ const noFlags: GlyphFlags = {
 const COLS = 80;
 
 function fakeTerminal() {
-  const queue: { data: Uint8Array; callback?: () => void }[] = [];
-  const written: number[] = [];
+  const queue: { data: string; callback?: () => void }[] = [];
+  const written: string[] = [];
   /** What each cell holds, so the grid can read characters back. */
   const cells = new Map<string, string>();
   let row = 0;
@@ -49,37 +51,38 @@ function fakeTerminal() {
      * sequence is consumed without touching a cell.
      */
     drain() {
-      let esc: number[] | null = null;
+      let esc: string[] | null = null;
       while (queue.length > 0) {
         const { data, callback } = queue.shift()!;
-        for (const byte of data) {
-          written.push(byte);
+        for (const ch of data) {
+          written.push(ch);
+          const code = ch.charCodeAt(0);
           if (esc) {
-            esc.push(byte);
+            esc.push(ch);
             if (esc.length === 1) {
-              if (byte !== 0x5b) esc = null; // a two-byte escape
-            } else if (byte >= 0x40 && byte <= 0x7e) {
-              const move = /^\[(\d+);(\d+)H$/.exec(String.fromCharCode(...esc));
+              if (ch !== "[") esc = null; // a two-byte escape
+            } else if (code >= 0x40 && code <= 0x7e) {
+              const move = /^\[(\d+);(\d+)H$/.exec(esc.join(""));
               if (move) {
                 row = Number(move[1]);
                 col = Number(move[2]);
               }
               esc = null;
             }
-          } else if (byte === 0x1b) {
+          } else if (ch === "\x1b") {
             esc = [];
-          } else if (byte === 0x0a) {
+          } else if (ch === "\n") {
             row++;
             col = 0;
           } else {
-            cells.set(`${row},${col}`, String.fromCharCode(byte));
+            cells.set(`${row},${col}`, ch);
             col++;
           }
         }
         callback?.();
       }
     },
-    text: () => String.fromCharCode(...written),
+    text: () => written.join(""),
     setCursor(r: number, c: number) {
       row = r;
       col = c;
@@ -109,15 +112,41 @@ describe("StreamPlayer", () => {
     expect(term.text()).toBe("hello");
   });
 
-  it("preserves high bytes that are not valid UTF-8", () => {
+  it("decodes IBMgraphics bytes so they reach a cell", () => {
     const term = fakeTerminal();
-    const player = new StreamPlayer(term.port, new TileGrid(), () => {});
+    const grid = new TileGrid();
+    const player = new StreamPlayer(term.port, grid, () => {});
 
-    // DECgraphics line drawing.
-    player.feed([text("Ä³")]);
+    // 0xcd is a horizontal wall. xterm.js drops it as invalid UTF-8, and the
+    // cell then stays empty -- which is how the overlay learns what a glyph
+    // landed on, so the whole map goes with it.
+    player.feed([glyph(1274), text("Í"), glyphEnd]);
     term.drain();
+    grid.resolve(term.port.readCell);
 
-    expect(term.text()).toBe("Ä³");
+    expect(term.text()).toBe("═");
+    expect(grid.get(0, 0)).toMatchObject({ tile: 1274, ch: "═" });
+  });
+
+  it("counts a multi-byte character as one cell of damage", () => {
+    const term = fakeTerminal();
+    const grid = new TileGrid();
+    const player = new StreamPlayer(term.port, grid, () => {});
+
+    // A tile in the cell a UTF-8 character is about to land on, and one to its
+    // left. Counting bytes rather than characters would retire both.
+    player.feed([glyph(10), text("a"), glyphEnd, glyph(11), text("b"), glyphEnd]);
+    term.drain();
+    grid.resolve(term.port.readCell);
+    expect(grid.size).toBe(2);
+
+    // Two bytes, one column: only the cell it lands on may be retired.
+    term.setCursor(0, 1);
+    player.feed([{ type: "text", bytes: "Ãº", prints: true }]);
+    term.drain();
+    grid.resolve(term.port.readCell);
+
+    expect(grid.get(0, 0)?.tile).toBe(10);
   });
 
   it("places a tile at the cursor position after the preceding text", () => {
@@ -131,6 +160,39 @@ describe("StreamPlayer", () => {
     grid.resolve(term.port.readCell);
 
     expect(grid.get(0, 5)?.tile).toBe(344);
+  });
+
+  it("draws nothing for a cell the hero has never seen", () => {
+    const term = fakeTerminal();
+    const grid = new TileGrid();
+    const player = new StreamPlayer(term.port, grid, () => {});
+
+    // 5.0 sends a real glyph for every unvisited cell, and its tile is a solid
+    // opaque black square. Painting it blacks out the whole map on arrival.
+    player.feed([glyph(1469, { ...noFlags, unexplored: true }), text(" "), glyphEnd]);
+    term.drain();
+    grid.resolve(term.port.readCell);
+
+    expect(grid.size).toBe(0);
+  });
+
+  it("retires a tile when its cell goes back to being unexplored", () => {
+    const term = fakeTerminal();
+    const grid = new TileGrid();
+    const player = new StreamPlayer(term.port, grid, () => {});
+
+    player.feed([glyph(344), text("d"), glyphEnd]);
+    term.drain();
+    grid.resolve(term.port.readCell);
+    expect(grid.get(0, 0)?.tile).toBe(344);
+
+    // Amnesia and a forgotten level both redraw seen terrain as unexplored.
+    term.setCursor(0, 0);
+    player.feed([glyph(1469, { ...noFlags, unexplored: true }), text(" "), glyphEnd]);
+    term.drain();
+    grid.resolve(term.port.readCell);
+
+    expect(grid.get(0, 0)).toBeUndefined();
   });
 
   it("does not read the cursor until the terminal has caught up", () => {

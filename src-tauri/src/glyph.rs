@@ -15,6 +15,8 @@
 //! | `MG_STATUE`  | `0x20` | `0x0040`|
 //! | `MG_OBJPILE` | `0x40` | `0x0080`|
 //! | `MG_BW_LAVA` | `0x80` | `0x0100`|
+//! | `MG_NOTHING` | --     | `0x0400`|
+//! | `MG_UNEXPL`  | --     | `0x0800`|
 //! | `MG_FEMALE`  | --     | `0x2000`|
 //!
 //! Sources: `include/hack.h` (NetHack-3.6.7_Released) and `include/display.h`
@@ -50,6 +52,16 @@ pub struct GlyphFlags {
     pub objpile: bool,
     /// Lava that should be highlighted because it renders like water.
     pub bw_lava: bool,
+    /// Nothing is known about this cell: the hero has never seen it (5.0 only).
+    ///
+    /// 5.0 draws unexplored cells as a real glyph rather than leaving them out,
+    /// and its tile is a solid opaque black square. Painting it would cover the
+    /// terminal's own background across every unvisited part of the map, so the
+    /// overlay leaves these cells alone.
+    pub unexplored: bool,
+    /// The cell is known to hold nothing worth drawing (5.0 only). Same
+    /// treatment as [`Self::unexplored`].
+    pub nothing: bool,
     /// The monster or statue is female (5.0 only; always false on 3.6).
     pub female: bool,
 }
@@ -69,6 +81,10 @@ impl GlyphFlags {
                 statue: has(0x20),
                 objpile: has(0x40),
                 bw_lava: has(0x80),
+                // 3.6 stops at MG_BW_LAVA; it has no marker for either of
+                // these, and it never draws an unexplored cell as a glyph.
+                unexplored: false,
+                nothing: false,
                 female: false,
             },
             NetHackVersion::V50 => GlyphFlags {
@@ -81,6 +97,8 @@ impl GlyphFlags {
                 statue: has(0x0040),
                 objpile: has(0x0080),
                 bw_lava: has(0x0100),
+                nothing: has(0x0400),
+                unexplored: has(0x0800),
                 female: has(0x2000),
             },
         }
@@ -134,6 +152,26 @@ mod tests {
         assert!(GlyphFlags::decode(0x0080, V50).objpile);
         assert!(GlyphFlags::decode(0x0100, V50).bw_lava);
         assert!(GlyphFlags::decode(0x2000, V50).female);
+    }
+
+    #[test]
+    fn v50_reports_the_unexplored_and_nothing_markers() {
+        // 5.0 sends a real glyph for every cell the hero has not seen, and its
+        // tile is a solid opaque black square. The overlay has to know not to
+        // paint it, so these two bits cannot be dropped.
+        assert!(GlyphFlags::decode(0x0800, V50).unexplored);
+        assert!(GlyphFlags::decode(0x0400, V50).nothing);
+        assert!(!GlyphFlags::decode(0x0800, V50).nothing);
+        assert!(!GlyphFlags::decode(0x0400, V50).unexplored);
+    }
+
+    #[test]
+    fn v36_has_no_unexplored_or_nothing_marker() {
+        // 3.6 stops at MG_BW_LAVA; those bit positions mean nothing there, so
+        // decoding must not invent a marker that suppresses real terrain.
+        let all_bits = GlyphFlags::decode(0xffff_ffff, V36);
+        assert!(!all_bits.unexplored);
+        assert!(!all_bits.nothing);
     }
 
     #[test]

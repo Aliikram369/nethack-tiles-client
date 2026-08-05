@@ -135,7 +135,7 @@ export function GameTerminal({
     };
 
     const port = {
-      write: (data: Uint8Array, callback?: () => void) => term.write(data, callback),
+      write: (data: string, callback?: () => void) => term.write(data, callback),
       cursor: () => ({
         row: term.buffer.active.cursorY,
         col: term.buffer.active.cursorX,

@@ -24,12 +24,18 @@
  * showing a tile.
  */
 
+import { decodeStream } from "./decode";
 import { latin1ToBytes, type GlyphFlags, type StreamItem } from "./protocol";
 import type { TileGrid } from "./tileGrid";
 
 /** The slice of xterm.js this module depends on. */
 export interface TerminalPort {
-  write(data: Uint8Array, callback?: () => void): void;
+  /**
+   * Text, not bytes. The stream is decoded here rather than by xterm.js, whose
+   * UTF-8 decoder throws away the CP437 bytes `IBMgraphics` sends. See
+   * {@link decodeStream}.
+   */
+  write(data: string, callback?: () => void): void;
   /** Cursor position in viewport coordinates. */
   cursor(): { row: number; col: number };
   size(): { rows: number; cols: number };
@@ -38,7 +44,7 @@ export interface TerminalPort {
 }
 
 export class StreamPlayer {
-  private pending: Uint8Array[] = [];
+  private pending: string[] = [];
   /** True between a start-glyph and its end-glyph code. */
   private inGlyph = false;
   /** Whether anything has happened since the last settle was scheduled. */
@@ -64,11 +70,14 @@ export class StreamPlayer {
 
     for (const item of items) {
       if (item.type === "text") {
-        this.pending.push(latin1ToBytes(item.bytes));
+        const text = decodeStream(latin1ToBytes(item.bytes));
+        this.pending.push(text);
         this.dirty = true;
         // A glyph's own character is what the tile stands for, not damage.
         if (item.prints && !this.inGlyph) {
-          const covered = item.bytes.length;
+          // Characters, not bytes: one CP437 or UTF-8 character fills one cell
+          // however many bytes carried it.
+          const covered = text.length;
           this.flush(() => this.damageEndingAtCursor(covered));
         }
         continue;
@@ -88,7 +97,16 @@ export class StreamPlayer {
             // before this one moves the cursor on.
             this.grid.commit(this.term.readCell);
             const { row, col } = this.term.cursor();
-            this.grid.place(row, col, tile, flags);
+            // 5.0 sends a real glyph for cells the hero has never seen, and
+            // its tile is a solid opaque black square -- so a level the player
+            // has just arrived on would be painted black end to end, hiding
+            // the terminal's own background. Whatever was here is still gone,
+            // hence the damage rather than simply skipping the cell.
+            if (flags.unexplored || flags.nothing) {
+              this.grid.damage(row, col);
+            } else {
+              this.grid.place(row, col, tile, flags);
+            }
           });
           break;
         }
@@ -200,23 +218,9 @@ export class StreamPlayer {
    * has processed exactly that much of the stream.
    */
   private flush(callback?: () => void): void {
-    const data = concat(this.pending);
+    const data = this.pending.length === 1 ? this.pending[0] : this.pending.join("");
     this.pending = [];
     if (data.length === 0 && !callback) return;
     this.term.write(data, callback);
   }
-}
-
-function concat(chunks: readonly Uint8Array[]): Uint8Array {
-  if (chunks.length === 0) return new Uint8Array(0);
-  if (chunks.length === 1) return chunks[0];
-  let total = 0;
-  for (const c of chunks) total += c.length;
-  const out = new Uint8Array(total);
-  let at = 0;
-  for (const c of chunks) {
-    out.set(c, at);
-    at += c.length;
-  }
-  return out;
 }

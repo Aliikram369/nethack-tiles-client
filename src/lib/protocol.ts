@@ -40,6 +40,10 @@ export interface GlyphFlags {
   statue: boolean;
   objpile: boolean;
   bwLava: boolean;
+  /** The hero has never seen this cell; 5.0 still sends a glyph for it. */
+  unexplored: boolean;
+  /** The cell is known to hold nothing worth drawing (5.0 only). */
+  nothing: boolean;
   female: boolean;
 }
 

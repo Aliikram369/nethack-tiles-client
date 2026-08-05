@@ -91,6 +91,31 @@ so the app reads the version from the startup banner. See `banner.rs`.
 sheets overlap. Index 1469 is `unexplored` on 5.0 and `statue of thug` on
 3.6.7. Both are in range. Only the banner gives the version.
 
+**NetHack 5.0 sends a tile for a cell the hero has never seen.** The glyph
+carries `MG_UNEXPL` (`0x0800`), and its tile is a solid black square that hides
+everything below it. `MG_NOTHING` (`0x0400`) is the same. The overlay must draw
+no tile for these two flags. If it draws them, a new level is black from edge to
+edge. 3.6 has neither flag, and those bit positions mean other things there, so
+decode them only for 5.0.
+
+**The app decodes the stream, not xterm.js.** `IBMgraphics` sends raw CP437:
+`0xCD` for a horizontal wall, `0xFA` for floor. Those are not valid UTF-8, and
+xterm.js drops such bytes without a trace, so the cell stays empty. The map then
+vanishes when tiles are off, and every terrain cell reads back as a space.
+`decodeStream` in `src/lib/decode.ts` decodes UTF-8 where the bytes are valid
+UTF-8 and CP437 everywhere else, so both kinds of server work. It decodes each
+chunk on its own and holds nothing back: the demuxer gives a glyph's character
+as an item of its own, so a held byte would strand a wall until the next one
+came.
+
+**Do not suppress a tile because its cell is blank.** It is tempting, because
+NetHack draws `S_stone` as a space. But `S_stone` is one glyph doing two jobs:
+the rock a corridor is cut through, which the player wants to see, and a square
+nothing is known about, which fills the unlit part of a room with rock. The two
+cannot be told apart, and players want the rock. Suppress `unexplored` by its
+flag instead, which is exact. An undecoded byte leaves a cell blank as well, so
+a blank cell says nothing about the glyph.
+
 **Hardfought needs a regional host.** Use `us.hardfought.org`, `eu.`, or `au.`.
 The bare domain goes through a proxy that cannot accept SSH.
 
