@@ -111,10 +111,16 @@ came.
 **Do not suppress a tile because its cell is blank.** It is tempting, because
 NetHack draws `S_stone` as a space. But `S_stone` is one glyph doing two jobs:
 the rock a corridor is cut through, which the player wants to see, and a square
-nothing is known about, which fills the unlit part of a room with rock. The two
-cannot be told apart, and players want the rock. Suppress `unexplored` by its
-flag instead, which is exact. An undecoded byte leaves a cell blank as well, so
-a blank cell says nothing about the glyph.
+nothing is known about. The two cannot be told apart, and players want the rock.
+Suppress `unexplored` by its flag instead, which is exact. An undecoded byte
+leaves a cell blank as well, so a blank cell says nothing about the glyph.
+
+The cost is that the unseen middle of a room fills with rock. It is a known bug,
+and the README says so. It is all but confined to one level type, so do not pay
+much for it. A memory of the terrain last seen in each cell was tried and
+reverted: it made the picture worse, and to keep a remembered tile alive it had
+to rewrite the recorded character to a space, which put that tile beyond the
+reach of `prune` and left `damage` as the only thing that could retire it.
 
 **Hardfought needs a regional host.** Use `us.hardfought.org`, `eu.`, or `au.`.
 The bare domain goes through a proxy that cannot accept SSH.
