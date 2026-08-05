@@ -175,6 +175,79 @@ describe("TileGrid", () => {
     expect(grid.size).toBe(0);
   });
 
+  it("keeps showing the terrain it last saw when a square goes dark", () => {
+    // A floor square NetHack can no longer see is redrawn as `S_stone`, whose
+    // symbol is a space and whose tile is an opaque rock texture. Painting it
+    // turns every room the hero has walked out of into solid rock.
+    const grid = grid_();
+    grid.place(1, 1, 1291, 0);
+    grid.resolve(screen(["", " ·"]));
+    expect(grid.get(1, 1)?.tile).toBe(1291);
+
+    grid.place(1, 1, 1272, 0);
+    grid.resolve(screen(["", "  "]));
+
+    expect(grid.get(1, 1)?.tile).toBe(1291);
+  });
+
+  it("keeps the remembered terrain across later frames", () => {
+    const grid = grid_();
+    grid.place(1, 1, 1291, 0);
+    grid.resolve(screen(["", " ·"]));
+    grid.place(1, 1, 1272, 0);
+    grid.resolve(screen(["", "  "]));
+
+    // The cell holds a space now, so the recorded character has to match it or
+    // the backstop in prune would throw the tile away again.
+    grid.resolve(screen(["", "  "]));
+    expect(grid.get(1, 1)?.tile).toBe(1291);
+  });
+
+  it("forgets remembered terrain when a cell becomes unknown again", () => {
+    // Arriving on a new level redraws every unknown cell as `unexplored`. The
+    // memory has to go with it, or the old level's floor shows through the new
+    // level's rock.
+    const grid = grid_();
+    grid.place(1, 1, 1272, 0);
+    grid.resolve(screen(["", "  "]));
+    grid.place(1, 1, 1291, 0);
+    grid.resolve(screen(["", " ·"]));
+
+    grid.forget(1, 1);
+    grid.place(1, 1, 1272, 0);
+    grid.resolve(screen(["", "  "]));
+
+    expect(grid.get(1, 1)?.tile).toBe(1272);
+  });
+
+  it("paints rock where no terrain was ever seen", () => {
+    // The rock a corridor is cut through. Nothing was ever here, so the stone
+    // tile is the right thing to draw.
+    const grid = grid_();
+    grid.place(1, 1, 1272, 0);
+    grid.resolve(screen(["", "  "]));
+
+    expect(grid.get(1, 1)?.tile).toBe(1272);
+  });
+
+  it("does not remember a monster as terrain", () => {
+    // `S_stone` is the first cmap tile, so a lower index is a monster or an
+    // object. Remembering one leaves it frozen on screen after it has gone.
+    const grid = grid_();
+    grid.place(1, 1, 1272, 0);
+    grid.resolve(screen(["", "  "])); // teaches the grid where cmap starts
+    grid.place(1, 1, 1291, 0);
+    grid.resolve(screen(["", " ·"]));
+    grid.place(1, 1, 93, 0);
+    grid.resolve(screen(["", " h"]));
+    expect(grid.get(1, 1)?.tile).toBe(93);
+
+    grid.place(1, 1, 1272, 0);
+    grid.resolve(screen(["", "  "]));
+
+    expect(grid.get(1, 1)?.tile).toBe(1291);
+  });
+
   it("survives a blank cell, which the terminal reports as a space", () => {
     const grid = grid_();
     grid.place(1, 1, 2360, 0);

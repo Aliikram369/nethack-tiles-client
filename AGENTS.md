@@ -108,13 +108,25 @@ chunk on its own and holds nothing back: the demuxer gives a glyph's character
 as an item of its own, so a held byte would strand a wall until the next one
 came.
 
-**Do not suppress a tile because its cell is blank.** It is tempting, because
-NetHack draws `S_stone` as a space. But `S_stone` is one glyph doing two jobs:
-the rock a corridor is cut through, which the player wants to see, and a square
-nothing is known about, which fills the unlit part of a room with rock. The two
-cannot be told apart, and players want the rock. Suppress `unexplored` by its
-flag instead, which is exact. An undecoded byte leaves a cell blank as well, so
-a blank cell says nothing about the glyph.
+**`S_stone` does three jobs.** It is the rock a corridor is cut through, a
+square never seen, and -- most often -- a floor square the hero can no longer
+see. NetHack draws all three as a space and sends the same tile, whose picture
+is an opaque rock texture. Draw it everywhere and each room the player walks out
+of turns to rock; draw it nowhere and the rock around the corridors goes.
+
+Nothing in the glyph tells the three apart, but the cell's own past does. The
+grid remembers the last terrain found in each cell and shows that again when the
+square goes dark. Two rules keep it honest:
+
+- Remember terrain only. `S_stone` is the first tile of the terrain block, since
+  the tile file runs monsters, then objects, then terrain, so a lower index is a
+  monster and would otherwise stay frozen on screen after it walked away. The
+  index is learned from the first space, never hardcoded: it moves between
+  NetHack versions.
+- Forget a cell that NetHack says nothing is known about (`MG_UNEXPL`). A new
+  level redraws its unknown cells that way, and stale memory would show the old
+  level's floor through the new level's rock. `TileGrid.forget` does both; plain
+  `damage` keeps the memory, which is what a menu covering the map needs.
 
 **Hardfought needs a regional host.** Use `us.hardfought.org`, `eu.`, or `au.`.
 The bare domain goes through a proxy that cannot accept SSH.
