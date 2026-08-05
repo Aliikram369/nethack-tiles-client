@@ -524,6 +524,24 @@ Two things the code is careful about:
   magnifies the figure without stretching the walls, because the ring stays one
   cell thick however big the room gets.
 
+## Known bugs
+
+**Unseen parts of a room fill with rock on a primitive area.** NetHack draws
+`S_stone` for a square nothing is known about, and the same `S_stone` for the
+rock a corridor is cut through. The two carry the same tile and the same blank
+symbol, so the app cannot tell them apart, and it draws the rock. In a room
+whose walls you have found but whose middle you have not walked, the middle
+therefore fills with rock.
+
+The dungeon overview (`^o`) names such a level "a primitive area". Almost all of
+it lands there: on one capture, level 16 had 210 squares of rock inside a room
+outline, against 0, 2, 31 and 0 on the four levels below it. Ordinary levels put
+their rock beside the corridors, which is where it belongs.
+
+The level type is not in the map the server sends -- only in the text `^o`
+prints -- so the app cannot find the level and treat it differently. Drawing no
+rock at all would fix the room and take the outline off every corridor with it.
+
 ## Not in v1
 
 Watching other players, ttyrec recording, Hardfought variants (xNetHack,
